@@ -8,9 +8,9 @@ use crate::error::Error;
 use crate::pagination::{Page, PageStream};
 use crate::types::{
     AddDocumentsRequest, AddDocumentsResponse, BulkDeleteByExternalIdsRequest,
-    BulkDeleteDocumentsRequest, BulkDeleteResponse, CleanupOrphansResponse, DeleteDocumentResponse,
-    DocumentEntry, ImportDocumentsRequest, ImportDocumentsResponse, ListDocumentsPage,
-    PendingStatus,
+    BulkDeleteDocumentsRequest, BulkDeleteResponse, Chunk, CleanupOrphansResponse,
+    DeleteChunkResponse, DeleteDocumentResponse, DocumentEntry, ImportDocumentsRequest,
+    ImportDocumentsResponse, ListDocumentsPage, PendingStatus,
 };
 
 impl Client {
@@ -117,6 +117,39 @@ impl Client {
         );
         let body = BulkDeleteByExternalIdsRequest { external_ids: ids };
         self.request_json(Method::DELETE, &path, Some(&body)).await
+    }
+
+    /// `GET /v1/tenants/{tenantID}/indexes/{indexID}/chunks/{chunkID}` —
+    /// fetch a single chunk by its numeric id.
+    ///
+    /// Returns [`crate::Error::NotFound`] when the chunk has been
+    /// tombstoned or never existed.
+    pub async fn get_chunk(&self, index_id: &str, chunk_id: i64) -> Result<Chunk, Error> {
+        let tenant = self.require_tenant()?;
+        let path = format!(
+            "v1/tenants/{}/indexes/{}/chunks/{}",
+            tenant, index_id, chunk_id
+        );
+        self.request_json(Method::GET, &path, Option::<&()>::None)
+            .await
+    }
+
+    /// `DELETE /v1/tenants/{tenantID}/indexes/{indexID}/chunks/{chunkID}`
+    /// — tombstone a single chunk. The server has no batch-delete chunk
+    /// endpoint; delete the whole document via [`Client::delete_document`]
+    /// when you need to drop every chunk for one doc.
+    pub async fn delete_chunk(
+        &self,
+        index_id: &str,
+        chunk_id: i64,
+    ) -> Result<DeleteChunkResponse, Error> {
+        let tenant = self.require_tenant()?;
+        let path = format!(
+            "v1/tenants/{}/indexes/{}/chunks/{}",
+            tenant, index_id, chunk_id
+        );
+        self.request_json(Method::DELETE, &path, Option::<&()>::None)
+            .await
     }
 
     /// Stream of pages from `GET /v1/tenants/.../indexes/.../documents`.

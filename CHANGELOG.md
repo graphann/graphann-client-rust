@@ -6,6 +6,48 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-04-25
+
+### Added
+- `Client::get_chunk(index_id, chunk_id)` and `Client::delete_chunk(index_id,
+  chunk_id)` — per-chunk read + tombstone via
+  `GET/DELETE /v1/tenants/{tenantID}/indexes/{indexID}/chunks/{chunkID}`.
+  No batch chunk-delete endpoint exists server-side; loop on the per-chunk
+  call when you need to drop several at once.
+- `Client::sync_documents(org_id, req)` — unified org-scoped ingestion via
+  `POST /v1/orgs/{orgID}/documents`. Routes to a shared dedup index when
+  `req.shared` is true, otherwise to the user's personal index.
+- `Client::list_user_indexes(org_id, user_id)` and
+  `Client::list_shared_indexes(org_id)` — org-scoped index discovery via
+  `GET /v1/orgs/{orgID}/users/{userID}/indexes` and
+  `GET /v1/orgs/{orgID}/shared/indexes`.
+- New types: `Chunk`, `DeleteChunkResponse`, `ListUserIndexesResponse`,
+  `ListSharedIndexesResponse`. The `Index` struct gained optional `path`,
+  `created_by`, and `metadata` fields populated by the org-scoped
+  listings (omitted on tenant-scoped routes — backward compatible with
+  0.1.0 deserialization).
+- New `org` module groups the org-scoped methods alongside the existing
+  per-domain modules.
+- Blocking parity: `BlockingClient::{get_chunk, delete_chunk,
+  sync_documents, list_user_indexes, list_shared_indexes}`.
+
+### Changed
+- **LLM settings path + method (server-side migration in lockstep):**
+  `get_llm_settings`, `update_llm_settings`, and `delete_llm_settings`
+  now hit `/v1/orgs/{orgID}/llm-settings` (was
+  `/v1/orgs/{orgID}/settings/llm`, never wired in the default router).
+  `update_llm_settings` is `PATCH` (partial merge) — was `PUT`.
+- `update_llm_settings` and `delete_llm_settings` return `LlmSettings`
+  (was `serde_json::Value`). PATCH responses carry the merged + masked
+  settings; DELETE responses carry the package defaults.
+
+### Removed (BREAKING)
+- `Client::get_api_key(key_id)` / `BlockingClient::get_api_key(key_id)`.
+  The route `GET /v1/tenants/{tenantID}/api-keys/{keyID}` is **not**
+  registered server-side (see `internal/server/routes.go`); the method
+  always returned `Error::NotFound`. Use `Client::list_api_keys` and
+  filter client-side when you need a single key's metadata.
+
 ## [0.1.0] - 2026-04-25
 
 ### Added

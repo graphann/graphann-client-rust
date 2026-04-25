@@ -13,7 +13,8 @@ use std::time::Duration;
 
 use graphann::{
     AddDocumentsRequest, ApiError, ClientBuilder, CreateIndexRequest, CreateTenantRequest,
-    Document, Error, ListJobsFilter, SearchRequest, SwitchEmbeddingModelRequest,
+    Document, Error, ListJobsFilter, LlmSettings, SearchRequest, SwitchEmbeddingModelRequest,
+    SyncDocument, SyncDocumentsRequest,
 };
 use http::header::HeaderName;
 use serde_json::json;
@@ -292,6 +293,255 @@ async fn api_error_envelope_round_trip() {
     let body = json!({"code": "validation_error", "message": "k must be > 0"});
     let parsed: ApiError = serde_json::from_value(body).unwrap();
     assert_eq!(parsed.code, "validation_error");
+}
+
+#[tokio::test]
+async fn ready_round_trip() {
+    let (server, client) = fixture().await;
+    Mock::given(method("GET"))
+        .and(path("/ready"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"status": "ready"})))
+        .mount(&server)
+        .await;
+    let r = client.ready().await.unwrap();
+    assert_eq!(r.status, "ready");
+}
+
+#[tokio::test]
+async fn get_chunk_round_trip() {
+    let (server, client) = fixture().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/tenants/t_test/indexes/i_abc/chunks/42"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "chunk_id": 42,
+            "text": "hello",
+            "document_id": 7,
+            "chunk_index": 0,
+            "start": 0,
+            "end": 5,
+        })))
+        .mount(&server)
+        .await;
+    let chunk = client.get_chunk("i_abc", 42).await.unwrap();
+    assert_eq!(chunk.chunk_id, 42);
+    assert_eq!(chunk.text, "hello");
+    assert_eq!(chunk.document_id, 7);
+    assert_eq!(chunk.end, 5);
+}
+
+#[tokio::test]
+async fn delete_chunk_round_trip() {
+    let (server, client) = fixture().await;
+    Mock::given(method("DELETE"))
+        .and(path("/v1/tenants/t_test/indexes/i_abc/chunks/9"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "index_id": "i_abc",
+            "deleted": 1,
+        })))
+        .mount(&server)
+        .await;
+    let resp = client.delete_chunk("i_abc", 9).await.unwrap();
+    assert_eq!(resp.index_id, "i_abc");
+    assert_eq!(resp.deleted, 1);
+}
+
+#[tokio::test]
+async fn clear_pending_round_trip() {
+    let (server, client) = fixture().await;
+    Mock::given(method("DELETE"))
+        .and(path("/v1/tenants/t_test/indexes/i_abc/pending"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "index_id": "i_abc",
+            "status": "cleared",
+            "message": "Pending documents cleared",
+        })))
+        .mount(&server)
+        .await;
+    let v = client.clear_pending("i_abc").await.unwrap();
+    assert_eq!(v["index_id"], "i_abc");
+    assert_eq!(v["status"], "cleared");
+}
+
+#[tokio::test]
+async fn process_pending_round_trip() {
+    let (server, client) = fixture().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/tenants/t_test/indexes/i_abc/process"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "index_id": "i_abc",
+            "processed": 3,
+            "chunks_created": 5,
+            "chunk_ids": [1, 2, 3, 4, 5],
+        })))
+        .mount(&server)
+        .await;
+    let v = client.process_pending("i_abc").await.unwrap();
+    assert_eq!(v["processed"], 3);
+    assert_eq!(v["chunks_created"], 5);
+}
+
+#[tokio::test]
+async fn list_user_indexes_round_trip() {
+    let (server, client) = fixture().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/orgs/org_demo/users/u_alice/indexes"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "indexes": [
+                {
+                    "id": "i_personal",
+                    "tenant_id": "t_org_demo",
+                    "name": "github",
+                    "status": "ready",
+                    "num_docs": 12,
+                    "num_chunks": 88,
+                    "dimension": 768,
+                    "path": "org/org_demo/users/u_alice/github",
+                }
+            ],
+            "total": 1,
+            "org_id": "org_demo",
+            "user_id": "u_alice",
+        })))
+        .mount(&server)
+        .await;
+    let resp = client
+        .list_user_indexes("org_demo", "u_alice")
+        .await
+        .unwrap();
+    assert_eq!(resp.total, 1);
+    assert_eq!(resp.indexes.len(), 1);
+    assert_eq!(resp.indexes[0].id, "i_personal");
+    assert_eq!(resp.user_id, "u_alice");
+}
+
+#[tokio::test]
+async fn list_shared_indexes_round_trip() {
+    let (server, client) = fixture().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/orgs/org_demo/shared/indexes"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "indexes": [
+                {
+                    "id": "i_shared",
+                    "tenant_id": "t_org_demo",
+                    "name": "confluence",
+                    "status": "ready",
+                    "num_docs": 200,
+                    "num_chunks": 1500,
+                    "dimension": 768,
+                    "path": "org/org_demo/shared/confluence",
+                }
+            ],
+            "total": 1,
+            "org_id": "org_demo",
+        })))
+        .mount(&server)
+        .await;
+    let resp = client.list_shared_indexes("org_demo").await.unwrap();
+    assert_eq!(resp.total, 1);
+    assert_eq!(resp.indexes[0].id, "i_shared");
+    assert_eq!(resp.org_id, "org_demo");
+}
+
+#[tokio::test]
+async fn sync_documents_round_trip() {
+    let (server, client) = fixture().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/orgs/org_demo/documents"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+            "synced": 2,
+            "org_id": "org_demo",
+            "user_id": "u_alice",
+            "source_type": "github",
+            "index_type": "shared",
+        })))
+        .mount(&server)
+        .await;
+    let req = SyncDocumentsRequest {
+        user_id: "u_alice".into(),
+        source_type: "github".into(),
+        shared: true,
+        documents: vec![
+            SyncDocument {
+                resource_id: Some("r_1".into()),
+                text: "alpha".into(),
+                metadata: None,
+            },
+            SyncDocument {
+                resource_id: Some("r_2".into()),
+                text: "beta".into(),
+                metadata: None,
+            },
+        ],
+    };
+    let resp = client.sync_documents("org_demo", req).await.unwrap();
+    assert_eq!(resp.synced, 2);
+    assert_eq!(resp.index_type, "shared");
+    assert_eq!(resp.org_id, "org_demo");
+}
+
+#[tokio::test]
+async fn llm_settings_get_round_trip() {
+    let (server, client) = fixture().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/orgs/org_demo/llm-settings"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "provider": "openai",
+            "model": "gpt-4",
+            "api_key": "***abcd",
+        })))
+        .mount(&server)
+        .await;
+    let s = client.get_llm_settings("org_demo").await.unwrap();
+    assert_eq!(s.provider, "openai");
+    assert_eq!(s.model, "gpt-4");
+    assert_eq!(s.api_key.as_deref(), Some("***abcd"));
+}
+
+#[tokio::test]
+async fn llm_settings_update_uses_patch() {
+    let (server, client) = fixture().await;
+    Mock::given(method("PATCH"))
+        .and(path("/v1/orgs/org_demo/llm-settings"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "provider": "ollama",
+            "model": "llama3",
+            "api_key": "***xyz",
+            "temperature": 0.2,
+        })))
+        .mount(&server)
+        .await;
+    let merged = client
+        .update_llm_settings(
+            "org_demo",
+            LlmSettings {
+                provider: "ollama".into(),
+                model: "llama3".into(),
+                temperature: Some(0.2),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(merged.provider, "ollama");
+    assert_eq!(merged.model, "llama3");
+    assert_eq!(merged.temperature, Some(0.2));
+}
+
+#[tokio::test]
+async fn llm_settings_delete_returns_settings() {
+    let (server, client) = fixture().await;
+    Mock::given(method("DELETE"))
+        .and(path("/v1/orgs/org_demo/llm-settings"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "provider": "ollama",
+            "model": "llama3",
+        })))
+        .mount(&server)
+        .await;
+    let defaults = client.delete_llm_settings("org_demo").await.unwrap();
+    assert_eq!(defaults.provider, "ollama");
+    assert_eq!(defaults.model, "llama3");
 }
 
 #[tokio::test]

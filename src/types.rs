@@ -124,6 +124,16 @@ pub struct Index {
     /// RFC3339 update timestamp.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub updated_at: Option<String>,
+    /// Filesystem path under the data dir. Populated on org/user/shared
+    /// listings; omitted for tenant-scoped routes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    /// User id of the creator. Populated on org-scoped listings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_by: Option<String>,
+    /// Free-form metadata bag. Populated on org-scoped listings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<HashMap<String, String>>,
 }
 
 /// Status response from `GET /v1/tenants/.../indexes/.../status`.
@@ -397,6 +407,51 @@ pub struct DeleteDocumentResponse {
     /// Chunks tombstoned.
     #[serde(default)]
     pub deleted_chunks: u64,
+}
+
+// =====================================================================
+// Chunks (per-chunk read/delete)
+// =====================================================================
+
+/// Body returned by `GET /v1/tenants/.../chunks/{chunkID}`.
+///
+/// The server returns a flat object so the SDK keeps the same shape
+/// (no envelope) even though `WriteSuccess` adds a top-level wrapper
+/// in some other endpoints.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Chunk {
+    /// Numeric chunk id.
+    #[serde(default)]
+    pub chunk_id: i64,
+    /// Reconstructed text. May be empty if the chunk was tombstoned
+    /// since the request started.
+    #[serde(default)]
+    pub text: String,
+    /// Owning numeric document id; -1 when metadata could not be loaded.
+    #[serde(default)]
+    pub document_id: i64,
+    /// Position of this chunk within its parent document (0-based).
+    #[serde(default)]
+    pub chunk_index: i64,
+    /// Byte offset of the chunk inside the original document.
+    #[serde(default)]
+    pub start: i64,
+    /// Byte offset of the chunk's end inside the original document.
+    #[serde(default)]
+    pub end: i64,
+}
+
+/// Body returned by `DELETE /v1/tenants/.../chunks/{chunkID}` for a
+/// single chunk delete. The server tombstones one chunk at a time and
+/// echoes the index id back.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct DeleteChunkResponse {
+    /// Index id (echoed).
+    #[serde(default)]
+    pub index_id: String,
+    /// Total chunks tombstoned by this call (typically 1).
+    #[serde(default)]
+    pub deleted: u64,
 }
 
 // =====================================================================
@@ -846,6 +901,41 @@ pub struct ListApiKeysResponse {
     /// Total returned.
     #[serde(default)]
     pub total: u64,
+}
+
+// =====================================================================
+// Org-level index listings
+// =====================================================================
+
+/// `GET /v1/orgs/{orgID}/users/{userID}/indexes` envelope.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ListUserIndexesResponse {
+    /// Personal indexes belonging to the user.
+    #[serde(default)]
+    pub indexes: Vec<Index>,
+    /// Total returned.
+    #[serde(default)]
+    pub total: u64,
+    /// Org id (echoed).
+    #[serde(default)]
+    pub org_id: String,
+    /// User id (echoed).
+    #[serde(default)]
+    pub user_id: String,
+}
+
+/// `GET /v1/orgs/{orgID}/shared/indexes` envelope.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ListSharedIndexesResponse {
+    /// Shared indexes belonging to the org.
+    #[serde(default)]
+    pub indexes: Vec<Index>,
+    /// Total returned.
+    #[serde(default)]
+    pub total: u64,
+    /// Org id (echoed).
+    #[serde(default)]
+    pub org_id: String,
 }
 
 // =====================================================================

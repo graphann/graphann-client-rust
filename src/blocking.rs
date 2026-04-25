@@ -11,14 +11,15 @@ use tokio::runtime::{Builder, Runtime};
 use crate::client::{Client, ClientBuilder};
 use crate::error::Error;
 use crate::types::{
-    AddDocumentsRequest, AddDocumentsResponse, BulkDeleteResponse, ClusterHealth,
+    AddDocumentsRequest, AddDocumentsResponse, BulkDeleteResponse, Chunk, ClusterHealth,
     ClusterNodesResponse, ClusterShardsResponse, CreateApiKeyRequest, CreateApiKeyResponse,
-    CreateIndexRequest, CreateTenantRequest, DeleteDocumentResponse, Health,
+    CreateIndexRequest, CreateTenantRequest, DeleteChunkResponse, DeleteDocumentResponse, Health,
     ImportDocumentsRequest, ImportDocumentsResponse, Index, IndexStatus, Job, ListApiKeysResponse,
-    ListIndexesResponse, ListJobsFilter, ListJobsResponse, ListTenantsResponse, LiveIndexStats,
-    LlmSettings, MultiSearchRequest, MultiSearchResponse, PendingStatus, Ready, SearchRequest,
-    SearchResponse, SwitchEmbeddingModelRequest, SwitchEmbeddingModelResponse, Tenant,
-    UpdateIndexRequest, VersionInfo,
+    ListIndexesResponse, ListJobsFilter, ListJobsResponse, ListSharedIndexesResponse,
+    ListTenantsResponse, ListUserIndexesResponse, LiveIndexStats, LlmSettings, MultiSearchRequest,
+    MultiSearchResponse, PendingStatus, Ready, SearchRequest, SearchResponse,
+    SwitchEmbeddingModelRequest, SwitchEmbeddingModelResponse, SyncDocumentsRequest,
+    SyncDocumentsResponse, Tenant, UpdateIndexRequest, VersionInfo,
 };
 
 /// Synchronous client built on top of an internal Tokio runtime.
@@ -145,6 +146,10 @@ impl_blocking_methods! {
     pub fn bulk_delete_by_external_ids(&self, index_id: &str, ids: Vec<String>) -> Result<BulkDeleteResponse, Error> => bulk_delete_by_external_ids;
     /// Sync wrapper for [`crate::Client::cleanup_orphans`].
     pub fn cleanup_orphans(&self) -> Result<crate::types::CleanupOrphansResponse, Error> => cleanup_orphans;
+    /// Sync wrapper for [`crate::Client::get_chunk`].
+    pub fn get_chunk(&self, index_id: &str, chunk_id: i64) -> Result<Chunk, Error> => get_chunk;
+    /// Sync wrapper for [`crate::Client::delete_chunk`].
+    pub fn delete_chunk(&self, index_id: &str, chunk_id: i64) -> Result<DeleteChunkResponse, Error> => delete_chunk;
 
     /// Sync wrapper for [`crate::Client::search`].
     pub fn search(&self, index_id: &str, req: SearchRequest) -> Result<SearchResponse, Error> => search;
@@ -170,9 +175,9 @@ impl_blocking_methods! {
     /// Sync wrapper for [`crate::Client::get_llm_settings`].
     pub fn get_llm_settings(&self, org_id: &str) -> Result<LlmSettings, Error> => get_llm_settings;
     /// Sync wrapper for [`crate::Client::update_llm_settings`].
-    pub fn update_llm_settings(&self, org_id: &str, settings: LlmSettings) -> Result<serde_json::Value, Error> => update_llm_settings;
+    pub fn update_llm_settings(&self, org_id: &str, settings: LlmSettings) -> Result<LlmSettings, Error> => update_llm_settings;
     /// Sync wrapper for [`crate::Client::delete_llm_settings`].
-    pub fn delete_llm_settings(&self, org_id: &str) -> Result<serde_json::Value, Error> => delete_llm_settings;
+    pub fn delete_llm_settings(&self, org_id: &str) -> Result<LlmSettings, Error> => delete_llm_settings;
 
     /// Sync wrapper for [`crate::Client::create_api_key`].
     pub fn create_api_key(&self, req: CreateApiKeyRequest) -> Result<CreateApiKeyResponse, Error> => create_api_key;
@@ -180,6 +185,11 @@ impl_blocking_methods! {
     pub fn list_api_keys(&self) -> Result<ListApiKeysResponse, Error> => list_api_keys;
     /// Sync wrapper for [`crate::Client::revoke_api_key`].
     pub fn revoke_api_key(&self, key_id: &str) -> Result<(), Error> => revoke_api_key;
+
+    /// Sync wrapper for [`crate::Client::list_user_indexes`].
+    pub fn list_user_indexes(&self, org_id: &str, user_id: &str) -> Result<ListUserIndexesResponse, Error> => list_user_indexes;
+    /// Sync wrapper for [`crate::Client::list_shared_indexes`].
+    pub fn list_shared_indexes(&self, org_id: &str) -> Result<ListSharedIndexesResponse, Error> => list_shared_indexes;
 }
 
 impl BlockingClient {
@@ -193,6 +203,16 @@ impl BlockingClient {
     ) -> Result<MultiSearchResponse, Error> {
         let client = self.client.clone();
         self.block_on(async move { client.multi_search(org_id, user_id, req).await })
+    }
+
+    /// Sync wrapper for [`crate::Client::sync_documents`].
+    pub fn sync_documents(
+        &self,
+        org_id: &str,
+        req: SyncDocumentsRequest,
+    ) -> Result<SyncDocumentsResponse, Error> {
+        let client = self.client.clone();
+        self.block_on(async move { client.sync_documents(org_id, req).await })
     }
 }
 

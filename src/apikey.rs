@@ -1,18 +1,14 @@
 //! API-key management endpoints on [`crate::Client`].
 //!
-//! **Status:** the GraphANN HTTP server currently exposes API key
-//! provisioning only via the CLI (`internal/tenant/api_key.go`). This
-//! module mirrors the per-tenant CRUD surface that the SDK spec
-//! requires; the routes below follow the obvious REST convention
-//! (`/v1/tenants/{tenantID}/api-keys`) so the SDK is ready the moment
-//! the server lights them up. Until then these calls return
-//! [`crate::Error::NotFound`] or `Error::Server { status: 404, .. }`.
+//! Mirrors the server-side surface in `internal/server/routes.go`:
+//! per-tenant CRUD with no per-key GET (server only exposes
+//! POST/GET-list/DELETE).
 
 use reqwest::Method;
 
 use crate::client::Client;
 use crate::error::Error;
-use crate::types::{ApiKey, CreateApiKeyRequest, CreateApiKeyResponse, ListApiKeysResponse};
+use crate::types::{CreateApiKeyRequest, CreateApiKeyResponse, ListApiKeysResponse};
 
 impl Client {
     /// `POST /v1/tenants/{tenantID}/api-keys` — provision a new API key.
@@ -39,14 +35,6 @@ impl Client {
         let tenant = self.require_tenant()?;
         let path = format!("v1/tenants/{}/api-keys/{}", tenant, key_id);
         self.request_empty(Method::DELETE, &path, Option::<&()>::None)
-            .await
-    }
-
-    /// `GET /v1/tenants/{tenantID}/api-keys/{keyID}`.
-    pub async fn get_api_key(&self, key_id: &str) -> Result<ApiKey, Error> {
-        let tenant = self.require_tenant()?;
-        let path = format!("v1/tenants/{}/api-keys/{}", tenant, key_id);
-        self.request_json(Method::GET, &path, Option::<&()>::None)
             .await
     }
 }

@@ -70,6 +70,7 @@ pub mod documents;
 pub mod health;
 pub mod indexes;
 pub mod jobs;
+pub mod org;
 pub mod search;
 pub mod settings;
 pub mod tenants;
