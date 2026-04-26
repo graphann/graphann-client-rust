@@ -77,7 +77,7 @@ impl Client {
     }
 
     /// `GET /v1/tenants/{tenantID}/indexes/{indexID}/live-stats`.
-    pub async fn live_index_stats(&self, index_id: &str) -> Result<LiveIndexStats, Error> {
+    pub async fn get_live_stats(&self, index_id: &str) -> Result<LiveIndexStats, Error> {
         let tenant = self.require_tenant()?;
         let path = format!("v1/tenants/{}/indexes/{}/live-stats", tenant, index_id);
         self.request_json(Method::GET, &path, Option::<&()>::None)

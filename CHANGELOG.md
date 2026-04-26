@@ -6,6 +6,36 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-04-25
+
+### Changed (BREAKING)
+- Method names on `Client` and `BlockingClient` standardized with the
+  Go, Python, and TypeScript SDKs. Wire protocol unchanged — this is a
+  source-only break, no behavior change. Migration table:
+
+  | Old (`0.1.x`)        | New (`0.2.0`)            |
+  | -------------------- | ------------------------ |
+  | `pending_status`     | `get_pending_status`     |
+  | `cluster_health`     | `get_cluster_health`     |
+  | `cluster_nodes`      | `get_cluster_nodes`      |
+  | `cluster_shards`     | `get_cluster_shards`     |
+  | `live_index_stats`   | `get_live_stats`         |
+
+- `delete_chunk(index_id, chunk_id: i64) -> DeleteChunkResponse` is
+  replaced by `delete_chunks(index_id, chunk_ids: Vec<i64>) ->
+  DeleteChunksResponse`. The server route is still
+  `DELETE /v1/tenants/{tenantID}/indexes/{indexID}/chunks/{chunkID}`,
+  but the handler reads `{"chunk_ids": [...]}` from the body and
+  ignores the path id; the SDK now sends a single batched request with
+  a sentinel `0` in the path, matching the Go and Python SDKs'
+  `DeleteChunks` semantics. To migrate `client.delete_chunk(idx, id)`,
+  use `client.delete_chunks(idx, vec![id])`.
+
+### Added
+- `DeleteChunksRequest` and `DeleteChunksResponse` in `types`. The
+  former wraps `chunk_ids: Vec<i64>`; the latter mirrors the existing
+  `DeleteChunkResponse` shape (`{deleted, index_id}`).
+
 ## [0.1.1] - 2026-04-25
 
 ### Added

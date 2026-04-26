@@ -263,7 +263,7 @@ async fn cluster_health_round_trip() {
         })))
         .mount(&server)
         .await;
-    let h = client.cluster_health().await.unwrap();
+    let h = client.get_cluster_health().await.unwrap();
     assert_eq!(h.status, "ok");
     assert_eq!(h.cluster_size, 3);
 }
@@ -330,19 +330,23 @@ async fn get_chunk_round_trip() {
 }
 
 #[tokio::test]
-async fn delete_chunk_round_trip() {
+async fn delete_chunks_round_trip() {
     let (server, client) = fixture().await;
+    // Path id is a sentinel `0`; chunk_ids ride in the body.
     Mock::given(method("DELETE"))
-        .and(path("/v1/tenants/t_test/indexes/i_abc/chunks/9"))
+        .and(path("/v1/tenants/t_test/indexes/i_abc/chunks/0"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "index_id": "i_abc",
-            "deleted": 1,
+            "deleted": 3,
         })))
         .mount(&server)
         .await;
-    let resp = client.delete_chunk("i_abc", 9).await.unwrap();
+    let resp = client
+        .delete_chunks("i_abc", vec![9, 10, 11])
+        .await
+        .unwrap();
     assert_eq!(resp.index_id, "i_abc");
-    assert_eq!(resp.deleted, 1);
+    assert_eq!(resp.deleted, 3);
 }
 
 #[tokio::test]

@@ -454,6 +454,29 @@ pub struct DeleteChunkResponse {
     pub deleted: u64,
 }
 
+/// Body sent by `DELETE /v1/tenants/.../chunks/{chunkID}` for a batch
+/// chunk delete. The server reads the `chunk_ids` list from the body
+/// and ignores the trailing path segment.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct DeleteChunksRequest {
+    /// Numeric chunk ids to tombstone. Must be non-empty.
+    #[serde(default)]
+    pub chunk_ids: Vec<i64>,
+}
+
+/// Body returned by `DELETE /v1/tenants/.../chunks/{chunkID}` for a
+/// batch chunk delete. Mirrors [`DeleteChunkResponse`] but reports the
+/// total tombstoned across the supplied `chunk_ids`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct DeleteChunksResponse {
+    /// Index id (echoed).
+    #[serde(default)]
+    pub index_id: String,
+    /// Total chunks tombstoned by this call.
+    #[serde(default)]
+    pub deleted: u64,
+}
+
 // =====================================================================
 // Search
 // =====================================================================

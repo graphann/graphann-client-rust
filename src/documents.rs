@@ -9,8 +9,8 @@ use crate::pagination::{Page, PageStream};
 use crate::types::{
     AddDocumentsRequest, AddDocumentsResponse, BulkDeleteByExternalIdsRequest,
     BulkDeleteDocumentsRequest, BulkDeleteResponse, Chunk, CleanupOrphansResponse,
-    DeleteChunkResponse, DeleteDocumentResponse, DocumentEntry, ImportDocumentsRequest,
-    ImportDocumentsResponse, ListDocumentsPage, PendingStatus,
+    DeleteChunksRequest, DeleteChunksResponse, DeleteDocumentResponse, DocumentEntry,
+    ImportDocumentsRequest, ImportDocumentsResponse, ListDocumentsPage, PendingStatus,
 };
 
 impl Client {
@@ -38,7 +38,7 @@ impl Client {
     }
 
     /// `GET /v1/tenants/{tenantID}/indexes/{indexID}/pending`.
-    pub async fn pending_status(&self, index_id: &str) -> Result<PendingStatus, Error> {
+    pub async fn get_pending_status(&self, index_id: &str) -> Result<PendingStatus, Error> {
         let tenant = self.require_tenant()?;
         let path = format!("v1/tenants/{}/indexes/{}/pending", tenant, index_id);
         self.request_json(Method::GET, &path, Option::<&()>::None)
@@ -135,21 +135,22 @@ impl Client {
     }
 
     /// `DELETE /v1/tenants/{tenantID}/indexes/{indexID}/chunks/{chunkID}`
-    /// — tombstone a single chunk. The server has no batch-delete chunk
-    /// endpoint; delete the whole document via [`Client::delete_document`]
-    /// when you need to drop every chunk for one doc.
-    pub async fn delete_chunk(
+    /// — tombstone a batch of chunks in one round-trip.
+    ///
+    /// The server route nominally targets a single `{chunkID}` path
+    /// segment but the handler reads `{"chunk_ids": [...]}` from the
+    /// request body and ignores the path id. We send `0` as a placeholder
+    /// to match the Go and Python SDKs' `DeleteChunks` semantics.
+    pub async fn delete_chunks(
         &self,
         index_id: &str,
-        chunk_id: i64,
-    ) -> Result<DeleteChunkResponse, Error> {
+        chunk_ids: Vec<i64>,
+    ) -> Result<DeleteChunksResponse, Error> {
         let tenant = self.require_tenant()?;
-        let path = format!(
-            "v1/tenants/{}/indexes/{}/chunks/{}",
-            tenant, index_id, chunk_id
-        );
-        self.request_json(Method::DELETE, &path, Option::<&()>::None)
-            .await
+        // Path id is a sentinel — the body is the source of truth.
+        let path = format!("v1/tenants/{}/indexes/{}/chunks/0", tenant, index_id);
+        let body = DeleteChunksRequest { chunk_ids };
+        self.request_json(Method::DELETE, &path, Some(&body)).await
     }
 
     /// Stream of pages from `GET /v1/tenants/.../indexes/.../documents`.

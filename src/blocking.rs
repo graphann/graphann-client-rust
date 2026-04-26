@@ -13,7 +13,7 @@ use crate::error::Error;
 use crate::types::{
     AddDocumentsRequest, AddDocumentsResponse, BulkDeleteResponse, Chunk, ClusterHealth,
     ClusterNodesResponse, ClusterShardsResponse, CreateApiKeyRequest, CreateApiKeyResponse,
-    CreateIndexRequest, CreateTenantRequest, DeleteChunkResponse, DeleteDocumentResponse, Health,
+    CreateIndexRequest, CreateTenantRequest, DeleteChunksResponse, DeleteDocumentResponse, Health,
     ImportDocumentsRequest, ImportDocumentsResponse, Index, IndexStatus, Job, ListApiKeysResponse,
     ListIndexesResponse, ListJobsFilter, ListJobsResponse, ListSharedIndexesResponse,
     ListTenantsResponse, ListUserIndexesResponse, LiveIndexStats, LlmSettings, MultiSearchRequest,
@@ -117,8 +117,8 @@ impl_blocking_methods! {
     pub fn update_index(&self, index_id: &str, req: UpdateIndexRequest) -> Result<Index, Error> => update_index;
     /// Sync wrapper for [`crate::Client::get_index_status`].
     pub fn get_index_status(&self, index_id: &str) -> Result<IndexStatus, Error> => get_index_status;
-    /// Sync wrapper for [`crate::Client::live_index_stats`].
-    pub fn live_index_stats(&self, index_id: &str) -> Result<LiveIndexStats, Error> => live_index_stats;
+    /// Sync wrapper for [`crate::Client::get_live_stats`].
+    pub fn get_live_stats(&self, index_id: &str) -> Result<LiveIndexStats, Error> => get_live_stats;
     /// Sync wrapper for [`crate::Client::clear_index`].
     pub fn clear_index(&self, index_id: &str) -> Result<serde_json::Value, Error> => clear_index;
     /// Sync wrapper for [`crate::Client::build_index`].
@@ -130,8 +130,8 @@ impl_blocking_methods! {
     pub fn add_documents(&self, index_id: &str, req: AddDocumentsRequest) -> Result<AddDocumentsResponse, Error> => add_documents;
     /// Sync wrapper for [`crate::Client::import_documents`].
     pub fn import_documents(&self, index_id: &str, req: ImportDocumentsRequest) -> Result<ImportDocumentsResponse, Error> => import_documents;
-    /// Sync wrapper for [`crate::Client::pending_status`].
-    pub fn pending_status(&self, index_id: &str) -> Result<PendingStatus, Error> => pending_status;
+    /// Sync wrapper for [`crate::Client::get_pending_status`].
+    pub fn get_pending_status(&self, index_id: &str) -> Result<PendingStatus, Error> => get_pending_status;
     /// Sync wrapper for [`crate::Client::process_pending`].
     pub fn process_pending(&self, index_id: &str) -> Result<serde_json::Value, Error> => process_pending;
     /// Sync wrapper for [`crate::Client::clear_pending`].
@@ -148,8 +148,8 @@ impl_blocking_methods! {
     pub fn cleanup_orphans(&self) -> Result<crate::types::CleanupOrphansResponse, Error> => cleanup_orphans;
     /// Sync wrapper for [`crate::Client::get_chunk`].
     pub fn get_chunk(&self, index_id: &str, chunk_id: i64) -> Result<Chunk, Error> => get_chunk;
-    /// Sync wrapper for [`crate::Client::delete_chunk`].
-    pub fn delete_chunk(&self, index_id: &str, chunk_id: i64) -> Result<DeleteChunkResponse, Error> => delete_chunk;
+    /// Sync wrapper for [`crate::Client::delete_chunks`].
+    pub fn delete_chunks(&self, index_id: &str, chunk_ids: Vec<i64>) -> Result<DeleteChunksResponse, Error> => delete_chunks;
 
     /// Sync wrapper for [`crate::Client::search`].
     pub fn search(&self, index_id: &str, req: SearchRequest) -> Result<SearchResponse, Error> => search;
@@ -165,12 +165,12 @@ impl_blocking_methods! {
     /// Sync wrapper for [`crate::Client::list_jobs`].
     pub fn list_jobs(&self, filter: ListJobsFilter) -> Result<ListJobsResponse, Error> => list_jobs;
 
-    /// Sync wrapper for [`crate::Client::cluster_nodes`].
-    pub fn cluster_nodes(&self) -> Result<ClusterNodesResponse, Error> => cluster_nodes;
-    /// Sync wrapper for [`crate::Client::cluster_shards`].
-    pub fn cluster_shards(&self) -> Result<ClusterShardsResponse, Error> => cluster_shards;
-    /// Sync wrapper for [`crate::Client::cluster_health`].
-    pub fn cluster_health(&self) -> Result<ClusterHealth, Error> => cluster_health;
+    /// Sync wrapper for [`crate::Client::get_cluster_nodes`].
+    pub fn get_cluster_nodes(&self) -> Result<ClusterNodesResponse, Error> => get_cluster_nodes;
+    /// Sync wrapper for [`crate::Client::get_cluster_shards`].
+    pub fn get_cluster_shards(&self) -> Result<ClusterShardsResponse, Error> => get_cluster_shards;
+    /// Sync wrapper for [`crate::Client::get_cluster_health`].
+    pub fn get_cluster_health(&self) -> Result<ClusterHealth, Error> => get_cluster_health;
 
     /// Sync wrapper for [`crate::Client::get_llm_settings`].
     pub fn get_llm_settings(&self, org_id: &str) -> Result<LlmSettings, Error> => get_llm_settings;

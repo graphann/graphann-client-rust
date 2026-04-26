@@ -75,13 +75,14 @@ cargo run --example quickstart
 Health        health, ready, version
 Tenants       list_tenants, create_tenant, get_tenant, delete_tenant
 Indexes       list_indexes, create_index, get_index, delete_index, update_index,
-              clear_index, build_index, compact_index, live_index_stats, get_index_status
-Documents     add_documents, import_documents, pending_status, process_pending,
+              clear_index, build_index, compact_index, get_live_stats, get_index_status
+Documents     add_documents, import_documents, get_pending_status, process_pending,
               clear_pending, get_document, delete_document, bulk_delete_documents,
-              bulk_delete_by_external_ids, list_documents (Stream), cleanup_orphans
+              bulk_delete_by_external_ids, get_chunk, delete_chunks,
+              list_documents (Stream), cleanup_orphans
 Search        search, search_text, search_vector, multi_search
 Jobs          switch_embedding_model, get_job, list_jobs, list_tenant_jobs
-Cluster       cluster_nodes, cluster_shards, cluster_health
+Cluster       get_cluster_nodes, get_cluster_shards, get_cluster_health
 LLM Settings  get_llm_settings, update_llm_settings, delete_llm_settings
 API Keys      create_api_key, list_api_keys, get_api_key, revoke_api_key
 ```
