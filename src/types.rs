@@ -296,9 +296,10 @@ pub struct AddDocumentsResponse {
     /// Index id (echoed).
     #[serde(default)]
     pub index_id: String,
-    /// Numeric chunk ids assigned to the new chunks.
+    /// String (UUID) chunk ids assigned to the new chunks. Server emits
+    /// `[]store.ChunkID` (= `[]string`); decoding as `Vec<i64>` fails.
     #[serde(default)]
-    pub chunk_ids: Vec<i64>,
+    pub chunk_ids: Vec<String>,
 }
 
 /// `POST .../import` body.
