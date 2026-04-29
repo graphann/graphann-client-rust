@@ -9,7 +9,7 @@ use crate::pagination::{Page, PageStream};
 use crate::types::{
     AddDocumentsRequest, AddDocumentsResponse, BulkDeleteByExternalIdsRequest,
     BulkDeleteDocumentsRequest, BulkDeleteResponse, Chunk, CleanupOrphansResponse,
-    DeleteChunksRequest, DeleteChunksResponse, DeleteDocumentResponse, DocumentEntry,
+    DeleteChunksRequest, DeleteChunksResponse, DeleteDocumentResponse, DocumentEntry, GCResponse,
     ImportDocumentsRequest, ImportDocumentsResponse, ListDocumentsPage, PendingStatus,
 };
 
@@ -204,6 +204,24 @@ impl Client {
     /// `POST /v1/admin/cleanup-orphans` — admin-only.
     pub async fn cleanup_orphans(&self) -> Result<CleanupOrphansResponse, Error> {
         self.request_json(Method::POST, "v1/admin/cleanup-orphans", Some(&json!({})))
+            .await
+    }
+
+    /// `POST /v1/tenants/{tenantID}/indexes/{indexID}/gc` — sweeps every
+    /// document whose sidecar `expires_at` has passed and returns the count
+    /// reclaimed. Idempotent — calling twice in a row returns 0 the second
+    /// time.
+    pub async fn run_index_gc(&self, index_id: &str) -> Result<GCResponse, Error> {
+        let tenant = self.require_tenant()?;
+        let path = format!("v1/tenants/{}/indexes/{}/gc", tenant, index_id);
+        self.request_json(Method::POST, &path, Some(&json!({})))
+            .await
+    }
+
+    /// `POST /v1/admin/gc` — sweep expired documents across every loaded
+    /// index in one shot. Admin-only.
+    pub async fn run_admin_gc(&self) -> Result<GCResponse, Error> {
+        self.request_json(Method::POST, "v1/admin/gc", Some(&json!({})))
             .await
     }
 }

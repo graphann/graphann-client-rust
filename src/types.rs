@@ -387,6 +387,19 @@ pub struct CleanupOrphansResponse {
     pub freed_bytes: u64,
 }
 
+/// Response body for `POST .../indexes/{id}/gc` and `POST /v1/admin/gc`.
+/// Both endpoints share the same shape: the index id (empty when admin
+/// scope) and the count of expired documents reclaimed.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct GCResponse {
+    /// Index id, present on per-index GC, empty for admin GC.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub index_id: String,
+    /// Number of expired documents removed.
+    #[serde(default)]
+    pub deleted_count: u64,
+}
+
 /// One row of the prefix-list response.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct DocumentEntry {
