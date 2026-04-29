@@ -11,6 +11,7 @@ use crate::client::Client;
 use crate::error::Error;
 use crate::types::{
     CreateIndexRequest, Index, IndexStatus, ListIndexesResponse, LiveIndexStats, UpdateIndexRequest,
+    UpsertResourceRequest, UpsertResourceResponse,
 };
 
 impl Client {
@@ -54,10 +55,6 @@ impl Client {
     }
 
     /// `PATCH /v1/tenants/{tenantID}/indexes/{indexID}`.
-    ///
-    /// **Note:** the current GraphANN server returns
-    /// `Error::Server { status: 501, .. }` (Not Implemented) — the route
-    /// is wired but the underlying mutation isn't persisted yet.
     pub async fn update_index(
         &self,
         index_id: &str,
@@ -92,19 +89,34 @@ impl Client {
             .await
     }
 
-    /// `POST /v1/tenants/{tenantID}/indexes/{indexID}/build` (deprecated).
-    pub async fn build_index(&self, index_id: &str) -> Result<serde_json::Value, Error> {
-        let tenant = self.require_tenant()?;
-        let path = format!("v1/tenants/{}/indexes/{}/build", tenant, index_id);
-        self.request_json::<serde_json::Value, _>(Method::POST, &path, Some(&json!({})))
-            .await
-    }
-
     /// `POST /v1/tenants/{tenantID}/indexes/{indexID}/compact`.
+    ///
+    /// Returns [`crate::error::Error::Conflict`] (HTTP 409) when a compaction
+    /// job is already running. Callers should retry after a back-off.
     pub async fn compact_index(&self, index_id: &str) -> Result<serde_json::Value, Error> {
         let tenant = self.require_tenant()?;
         let path = format!("v1/tenants/{}/indexes/{}/compact", tenant, index_id);
         self.request_json::<serde_json::Value, _>(Method::POST, &path, Some(&json!({})))
             .await
+    }
+
+    /// `PUT /v1/tenants/{tenantID}/indexes/{indexID}/resources/{resourceID}`.
+    ///
+    /// Atomically creates or replaces a named resource: parses the text,
+    /// chunks it, embeds it, and swaps any prior chunks for this resource in
+    /// one request. Returns [`UpsertResourceResponse`] indicating whether the
+    /// call was a `"create"` or an `"update"`.
+    pub async fn upsert_resource(
+        &self,
+        index_id: &str,
+        resource_id: &str,
+        req: UpsertResourceRequest,
+    ) -> Result<UpsertResourceResponse, Error> {
+        let tenant = self.require_tenant()?;
+        let path = format!(
+            "v1/tenants/{}/indexes/{}/resources/{}",
+            tenant, index_id, resource_id
+        );
+        self.request_json(Method::PUT, &path, Some(&req)).await
     }
 }

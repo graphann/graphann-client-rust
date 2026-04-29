@@ -27,28 +27,6 @@ impl Client {
         self.cached_search(&path, req).await
     }
 
-    /// `POST /v1/tenants/{tenantID}/indexes/{indexID}/search/text`.
-    pub async fn search_text(
-        &self,
-        index_id: &str,
-        req: SearchRequest,
-    ) -> Result<SearchResponse, Error> {
-        let tenant = self.require_tenant()?.to_string();
-        let path = format!("v1/tenants/{}/indexes/{}/search/text", tenant, index_id);
-        self.cached_search(&path, req).await
-    }
-
-    /// `POST /v1/tenants/{tenantID}/indexes/{indexID}/search/vector`.
-    pub async fn search_vector(
-        &self,
-        index_id: &str,
-        req: SearchRequest,
-    ) -> Result<SearchResponse, Error> {
-        let tenant = self.require_tenant()?.to_string();
-        let path = format!("v1/tenants/{}/indexes/{}/search/vector", tenant, index_id);
-        self.cached_search(&path, req).await
-    }
-
     /// `POST /v1/orgs/{orgID}/users/{userID}/search` — multi-source
     /// search across an org's indexes with RBAC filtering.
     pub async fn multi_search(

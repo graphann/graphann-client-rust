@@ -23,7 +23,7 @@ use std::time::Duration;
 
 use graphann::{
     AddDocumentsRequest, ClientBuilder, CreateIndexRequest, CreateTenantRequest, Document, Error,
-    SearchRequest, SwitchEmbeddingModelRequest,
+    SearchRequest, SwitchEmbeddingModelRequest, UpsertResourceRequest,
 };
 
 #[tokio::main]
@@ -59,9 +59,26 @@ async fn main() -> Result<(), Error> {
             id: Some("i_quickstart".into()),
             name: "quickstart-index".into(),
             description: Some("Demo index".into()),
+            ..Default::default()
         })
         .await?;
     println!("  -> {} ({})", index.id, index.name);
+
+    println!("upserting resource");
+    let upserted = client
+        .upsert_resource(
+            &index.id,
+            "resource-quickstart",
+            UpsertResourceRequest {
+                text: "GraphANN stores graph topology, not embeddings.".into(),
+                metadata: [("src".into(), "quickstart".into())].into(),
+            },
+        )
+        .await?;
+    println!(
+        "  -> {} op={} added={} tombstoned={}",
+        upserted.resource_id, upserted.operation, upserted.chunks_added, upserted.chunks_tombstoned
+    );
 
     println!("ingesting 10 documents");
     let docs: Vec<Document> = (0..10)

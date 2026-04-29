@@ -6,6 +6,41 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-04-28
+
+### Removed (BREAKING)
+
+- `Client::search_text` / `BlockingClient::search_text` — endpoint deleted
+  server-side. Use `Client::search` with `SearchRequest { query: Some(...),
+  ..Default::default() }` instead.
+- `Client::search_vector` / `BlockingClient::search_vector` — endpoint deleted
+  server-side. Use `Client::search` with `SearchRequest { vector: Some(...),
+  ..Default::default() }` instead.
+- `Client::build_index` / `BlockingClient::build_index` — was a no-op stub;
+  endpoint removed server-side.
+
+### Added
+
+- `Client::upsert_resource(index_id, resource_id, req)` /
+  `BlockingClient::upsert_resource` — `PUT
+  .../resources/{resourceID}`. Atomic create-or-replace: chunks, embeds, and
+  swaps prior resource chunks in one request. Returns `UpsertResourceResponse`
+  with `resource_id`, `chunks_added`, `chunks_tombstoned`, `operation`
+  (`"create"` | `"update"`).
+- New types: `UpsertResourceRequest`, `UpsertResourceResponse`.
+
+### Changed
+
+- `CreateIndexRequest` and `UpdateIndexRequest` gain optional
+  `compression: Option<String>` and `approximate: Option<bool>`.
+- `Index` gains optional `compression: Option<String>` and
+  `approximate: Option<bool>`.
+- `SearchFilter` gains `equals: HashMap<String, String>` for generic metadata
+  pre-filtering. `SearchFilter::is_empty` updated accordingly.
+- `compact_index` docstring documents that a 409 response maps to
+  `Error::Conflict` (compaction already running — retry after back-off).
+- `update_index` docstring drops the outdated "returns 501" note.
+
 ## [0.2.0] - 2026-04-25
 
 ### Changed (BREAKING)

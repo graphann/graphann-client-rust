@@ -13,8 +13,8 @@ use std::time::Duration;
 
 use graphann::{
     AddDocumentsRequest, ApiError, ClientBuilder, CreateIndexRequest, CreateTenantRequest,
-    Document, Error, ListJobsFilter, LlmSettings, SearchRequest, SwitchEmbeddingModelRequest,
-    SyncDocument, SyncDocumentsRequest,
+    Document, Error, ListJobsFilter, LlmSettings, SearchFilter, SearchRequest,
+    SwitchEmbeddingModelRequest, SyncDocument, SyncDocumentsRequest, UpsertResourceRequest,
 };
 use http::header::HeaderName;
 use serde_json::json;
@@ -81,9 +81,8 @@ async fn create_index_round_trip() {
 
     let idx = client
         .create_index(CreateIndexRequest {
-            id: None,
             name: "demo".into(),
-            description: None,
+            ..Default::default()
         })
         .await
         .unwrap();
@@ -546,6 +545,124 @@ async fn llm_settings_delete_returns_settings() {
     let defaults = client.delete_llm_settings("org_demo").await.unwrap();
     assert_eq!(defaults.provider, "ollama");
     assert_eq!(defaults.model, "llama3");
+}
+
+#[tokio::test]
+async fn upsert_resource_create() {
+    let (server, client) = fixture().await;
+    Mock::given(method("PUT"))
+        .and(path("/v1/tenants/t_test/indexes/i_abc/resources/doc-1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "resource_id": "doc-1",
+            "chunks_added": 3,
+            "chunks_tombstoned": 0,
+            "operation": "create",
+        })))
+        .mount(&server)
+        .await;
+    let resp = client
+        .upsert_resource(
+            "i_abc",
+            "doc-1",
+            UpsertResourceRequest {
+                text: "hello world".into(),
+                metadata: [("src".into(), "test".into())].into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.resource_id, "doc-1");
+    assert_eq!(resp.chunks_added, 3);
+    assert_eq!(resp.chunks_tombstoned, 0);
+    assert_eq!(resp.operation, "create");
+}
+
+#[tokio::test]
+async fn upsert_resource_update() {
+    let (server, client) = fixture().await;
+    Mock::given(method("PUT"))
+        .and(path("/v1/tenants/t_test/indexes/i_abc/resources/doc-1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "resource_id": "doc-1",
+            "chunks_added": 2,
+            "chunks_tombstoned": 3,
+            "operation": "update",
+        })))
+        .mount(&server)
+        .await;
+    let resp = client
+        .upsert_resource(
+            "i_abc",
+            "doc-1",
+            UpsertResourceRequest {
+                text: "updated".into(),
+                metadata: Default::default(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.operation, "update");
+    assert_eq!(resp.chunks_tombstoned, 3);
+}
+
+#[tokio::test]
+async fn create_index_with_compression_and_approximate() {
+    let (server, client) = fixture().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/tenants/t_test/indexes"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+            "id": "i_pq",
+            "tenant_id": "t_test",
+            "name": "pq-index",
+            "status": "empty",
+            "num_docs": 0,
+            "num_chunks": 0,
+            "dimension": 0,
+            "compression": "pq",
+            "approximate": true,
+        })))
+        .mount(&server)
+        .await;
+    let idx = client
+        .create_index(CreateIndexRequest {
+            name: "pq-index".into(),
+            compression: Some("pq".into()),
+            approximate: Some(true),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(idx.id, "i_pq");
+    assert_eq!(idx.compression.as_deref(), Some("pq"));
+    assert_eq!(idx.approximate, Some(true));
+}
+
+#[tokio::test]
+async fn search_filter_equals_round_trip() {
+    let (server, client) = fixture().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/tenants/t_test/indexes/i_abc/search"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "results": [],
+            "total": 0,
+        })))
+        .mount(&server)
+        .await;
+    let resp = client
+        .search(
+            "i_abc",
+            SearchRequest {
+                query: Some("hello".into()),
+                filter: SearchFilter {
+                    equals: [("lang".into(), "en".into())].into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.total, 0);
 }
 
 #[tokio::test]

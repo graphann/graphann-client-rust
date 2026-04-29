@@ -134,6 +134,12 @@ pub struct Index {
     /// Free-form metadata bag. Populated on org-scoped listings.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata: Option<HashMap<String, String>>,
+    /// Compression strategy used by the index (e.g. `"pq"`, `"scalar"`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compression: Option<String>,
+    /// Whether the index uses approximate (HNSW) search.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approximate: Option<bool>,
 }
 
 /// Status response from `GET /v1/tenants/.../indexes/.../status`.
@@ -159,13 +165,17 @@ pub struct CreateIndexRequest {
     /// Optional description.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// Compression strategy (`"none"`, `"scalar"`, `"binary"`, `"pq"`,
+    /// `"recompute"`, or `""` for server default).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compression: Option<String>,
+    /// When `true`, build an approximate (HNSW) graph; `false` uses brute force.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approximate: Option<bool>,
 }
 
-/// `PATCH /v1/tenants/.../indexes/.../` body. Both fields are optional
-/// — only the supplied keys are updated server-side.
-///
-/// The current server returns 501 for this route; the type is provided
-/// so callers can opt in once the server lights it up.
+/// `PATCH /v1/tenants/.../indexes/.../` body. Only the supplied keys are
+/// updated server-side (partial merge).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct UpdateIndexRequest {
     /// New display name.
@@ -174,6 +184,12 @@ pub struct UpdateIndexRequest {
     /// New description.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// Compression strategy to apply.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compression: Option<String>,
+    /// Toggle approximate (HNSW) search on/off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approximate: Option<bool>,
 }
 
 /// Live (in-memory) index statistics.
@@ -481,10 +497,10 @@ pub struct DeleteChunksResponse {
 // Search
 // =====================================================================
 
-/// Combined `search` / `search_text` / `search_vector` request body.
+/// `POST .../search` request body.
 ///
-/// Either `query` or `vector` must be supplied (mutually exclusive on
-/// the dedicated text/vector endpoints).
+/// Supply either `query` (text; embedded server-side) or `vector`
+/// (pre-computed embedding). Both fields may be set for a hybrid search.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SearchRequest {
     /// Text query — embedded server-side.
@@ -517,6 +533,11 @@ pub struct SearchFilter {
     /// Require each key/value to match the chunk's stored metadata.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub metadata_filter: HashMap<String, JsonValue>,
+    /// Generic equality pre-filter: every key must match the chunk's
+    /// stored metadata exactly. Takes precedence over `metadata_filter`
+    /// on the server when both are present.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub equals: HashMap<String, String>,
 }
 
 impl SearchFilter {
@@ -526,10 +547,11 @@ impl SearchFilter {
         self.repo_ids.is_empty()
             && self.exclude_external_ids.is_empty()
             && self.metadata_filter.is_empty()
+            && self.equals.is_empty()
     }
 }
 
-/// One result returned from `search` / `search_text` / `search_vector`.
+/// One result returned from `search`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SearchResult {
     /// Stable chunk identifier — string form used over the wire.
@@ -833,6 +855,37 @@ pub struct ClusterHealth {
     /// Number of shards below their replication factor.
     #[serde(default)]
     pub under_replicated_shards: u32,
+}
+
+// =====================================================================
+// Resources (atomic upsert)
+// =====================================================================
+
+/// Body for `PUT /v1/tenants/.../indexes/.../resources/{resourceID}`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct UpsertResourceRequest {
+    /// Resource text — chunked and embedded server-side.
+    pub text: String,
+    /// Optional metadata attached to every chunk produced from this resource.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub metadata: HashMap<String, String>,
+}
+
+/// Response from `upsert_resource`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct UpsertResourceResponse {
+    /// The resource id (echoed).
+    #[serde(default)]
+    pub resource_id: String,
+    /// Chunks created in this call.
+    #[serde(default)]
+    pub chunks_added: u64,
+    /// Prior chunks tombstoned for this resource (on update).
+    #[serde(default)]
+    pub chunks_tombstoned: u64,
+    /// `"create"` (first call for this resource) or `"update"`.
+    #[serde(default)]
+    pub operation: String,
 }
 
 // =====================================================================

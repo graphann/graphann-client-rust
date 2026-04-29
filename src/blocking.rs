@@ -19,7 +19,8 @@ use crate::types::{
     ListTenantsResponse, ListUserIndexesResponse, LiveIndexStats, LlmSettings, MultiSearchRequest,
     MultiSearchResponse, PendingStatus, Ready, SearchRequest, SearchResponse,
     SwitchEmbeddingModelRequest, SwitchEmbeddingModelResponse, SyncDocumentsRequest,
-    SyncDocumentsResponse, Tenant, UpdateIndexRequest, VersionInfo,
+    SyncDocumentsResponse, Tenant, UpdateIndexRequest, UpsertResourceRequest,
+    UpsertResourceResponse, VersionInfo,
 };
 
 /// Synchronous client built on top of an internal Tokio runtime.
@@ -121,8 +122,6 @@ impl_blocking_methods! {
     pub fn get_live_stats(&self, index_id: &str) -> Result<LiveIndexStats, Error> => get_live_stats;
     /// Sync wrapper for [`crate::Client::clear_index`].
     pub fn clear_index(&self, index_id: &str) -> Result<serde_json::Value, Error> => clear_index;
-    /// Sync wrapper for [`crate::Client::build_index`].
-    pub fn build_index(&self, index_id: &str) -> Result<serde_json::Value, Error> => build_index;
     /// Sync wrapper for [`crate::Client::compact_index`].
     pub fn compact_index(&self, index_id: &str) -> Result<serde_json::Value, Error> => compact_index;
 
@@ -153,10 +152,6 @@ impl_blocking_methods! {
 
     /// Sync wrapper for [`crate::Client::search`].
     pub fn search(&self, index_id: &str, req: SearchRequest) -> Result<SearchResponse, Error> => search;
-    /// Sync wrapper for [`crate::Client::search_text`].
-    pub fn search_text(&self, index_id: &str, req: SearchRequest) -> Result<SearchResponse, Error> => search_text;
-    /// Sync wrapper for [`crate::Client::search_vector`].
-    pub fn search_vector(&self, index_id: &str, req: SearchRequest) -> Result<SearchResponse, Error> => search_vector;
 
     /// Sync wrapper for [`crate::Client::switch_embedding_model`].
     pub fn switch_embedding_model(&self, index_id: &str, req: SwitchEmbeddingModelRequest) -> Result<SwitchEmbeddingModelResponse, Error> => switch_embedding_model;
@@ -193,6 +188,17 @@ impl_blocking_methods! {
 }
 
 impl BlockingClient {
+    /// Sync wrapper for [`crate::Client::upsert_resource`].
+    pub fn upsert_resource(
+        &self,
+        index_id: &str,
+        resource_id: &str,
+        req: UpsertResourceRequest,
+    ) -> Result<UpsertResourceResponse, Error> {
+        let client = self.client.clone();
+        self.block_on(async move { client.upsert_resource(index_id, resource_id, req).await })
+    }
+
     /// Sync wrapper for [`crate::Client::multi_search`]. The macro can't
     /// emit triple-arg helpers cleanly, so this one is hand-written.
     pub fn multi_search(
