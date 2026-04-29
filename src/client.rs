@@ -300,6 +300,37 @@ impl Client {
         }
     }
 
+    /// Returns a new [`Client`] that targets `tenant_id` instead of the
+    /// default tenant baked into the builder. Useful for callers that
+    /// juggle multiple tenants (e.g. one default tenant plus per-campaign
+    /// tenants) — building a fresh [`ClientBuilder`] for every call would
+    /// also reset the response cache and singleflight group.
+    ///
+    /// The returned client shares the underlying HTTP transport (a single
+    /// [`reqwest::Client`] connection pool) so this is cheap. Response
+    /// cache and singleflight coalescing are NOT shared across tenants —
+    /// the cloned client always starts with both disabled, since the
+    /// cache key includes only the request path and not the tenant id.
+    pub fn with_tenant_id(&self, tenant_id: impl Into<String>) -> Client {
+        let mut config = self.inner.config.clone();
+        config.tenant_id = Some(tenant_id.into());
+        #[cfg(feature = "metrics")]
+        let metrics = {
+            let guard = self.inner.metrics.read();
+            parking_lot::RwLock::new(guard.clone())
+        };
+        Client {
+            inner: Arc::new(ClientInner {
+                http: self.inner.http.clone(),
+                config,
+                cache: None,
+                singleflight: None,
+                #[cfg(feature = "metrics")]
+                metrics,
+            }),
+        }
+    }
+
     pub(crate) fn url(&self, path: &str) -> Result<Url, Error> {
         let trimmed = path.trim_start_matches('/');
         let mut base = self.inner.config.base_url.clone();
