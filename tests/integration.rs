@@ -720,6 +720,140 @@ async fn cleanup_orphans_passes_min_age_and_dry_run() {
     assert_eq!(resp.removed.len(), 1);
 }
 
+// --- gzip request-body tests ----------------------------------------------
+//
+// graphann's HTTP server does not decode `Content-Encoding: gzip` request
+// bodies. The SDK's auto-gzip is therefore opt-in
+// (`ClientBuilder::compress_requests(true)`). These tests pin the
+// behaviour: large bodies are sent uncompressed by default; only the
+// explicit opt-in produces a gzipped wire body.
+
+/// Default builder must NOT gzip request bodies, even ones above the
+/// threshold. Regression for the silent 400 "Invalid JSON body"
+/// failures observed against stock graphann when the SDK auto-gzipped
+/// large /documents batches.
+///
+/// Pins the absence of `Content-Encoding: gzip` two ways: a positive
+/// match on `Content-Type: application/json` (sent on every body) and
+/// a `body_partial_json` match that would fail for a gzipped wire body.
+#[tokio::test]
+async fn default_client_does_not_gzip_large_request_bodies() {
+    let (server, client) = fixture().await;
+    // body_string_contains matches the raw uncompressed JSON; if the SDK
+    // had gzipped the body, the wire bytes would start with the gzip magic
+    // 0x1f 0x8b and the substring would NOT be present, so the mock would
+    // 404 and add_documents would fail — exactly the regression we're
+    // pinning.
+    Mock::given(method("POST"))
+        .and(path("/v1/tenants/t_test/indexes/i_test/documents"))
+        .and(header("content-type", "application/json"))
+        .and(wiremock::matchers::body_string_contains("\"documents\":"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+            "added": 1,
+            "index_id": "i_test",
+            "chunk_ids": ["chunk-1"]
+        })))
+        .mount(&server)
+        .await;
+
+    let big_text = "abcdefghij".repeat(8 * 1024); // 80 KiB body
+    let req = AddDocumentsRequest {
+        documents: vec![Document {
+            text: big_text,
+            ..Default::default()
+        }],
+    };
+    let resp = client
+        .add_documents("i_test", req)
+        .await
+        .expect("default-config large POST must succeed without gzip");
+    assert_eq!(resp.added, 1);
+}
+
+/// `compress_requests(true)` must emit `Content-Encoding: gzip` for
+/// bodies above the threshold. Opt-in path for callers behind a proxy
+/// that decompresses before forwarding.
+#[tokio::test]
+async fn compress_requests_opt_in_sets_gzip_header() {
+    let server = wiremock::MockServer::start().await;
+    let client = ClientBuilder::new()
+        .base_url(server.uri())
+        .unwrap()
+        .api_key("t_test", "ak_test")
+        .timeout(Duration::from_secs(5))
+        .max_retries(0)
+        .compress_requests(true)
+        .build()
+        .unwrap();
+
+    Mock::given(method("POST"))
+        .and(path("/v1/tenants/t_test/indexes/i_test/documents"))
+        .and(header("content-encoding", "gzip"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+            "added": 1,
+            "index_id": "i_test",
+            "chunk_ids": ["chunk-1"]
+        })))
+        .mount(&server)
+        .await;
+
+    let big_text = "abcdefghij".repeat(8 * 1024);
+    let req = AddDocumentsRequest {
+        documents: vec![Document {
+            text: big_text,
+            ..Default::default()
+        }],
+    };
+    let resp = client
+        .add_documents("i_test", req)
+        .await
+        .expect("opt-in gzip POST must reach the matched mock");
+    assert_eq!(resp.added, 1);
+}
+
+/// Even with `compress_requests(true)`, small bodies stay uncompressed
+/// because they're below the threshold. Pins the threshold semantics so
+/// callers don't see surprise gzip on tiny calls.
+#[tokio::test]
+async fn compress_requests_opt_in_skips_small_bodies() {
+    let server = wiremock::MockServer::start().await;
+    let client = ClientBuilder::new()
+        .base_url(server.uri())
+        .unwrap()
+        .api_key("t_test", "ak_test")
+        .timeout(Duration::from_secs(5))
+        .max_retries(0)
+        .compress_requests(true)
+        .build()
+        .unwrap();
+
+    Mock::given(method("POST"))
+        .and(path("/v1/tenants/t_test/indexes"))
+        .and(header("content-type", "application/json"))
+        .and(wiremock::matchers::body_partial_json(json!({
+            "name": "tiny"
+        })))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+            "id": "i_abc",
+            "tenant_id": "t_test",
+            "name": "tiny",
+            "status": "empty",
+            "num_docs": 0,
+            "num_chunks": 0,
+            "dimension": 0
+        })))
+        .mount(&server)
+        .await;
+
+    client
+        .create_index(CreateIndexRequest {
+            name: "tiny".into(),
+            ..Default::default()
+        })
+        .await
+        .expect("small body must skip gzip even when opt-in is set");
+}
+
 #[tokio::test]
 #[ignore]
 async fn live_smoke() {

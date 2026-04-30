@@ -72,6 +72,14 @@ pub struct ClientConfig {
     pub(crate) singleflight: bool,
     pub(crate) extra_headers: HeaderMap,
     pub(crate) user_agent: String,
+    /// When `true`, request bodies above [`GZIP_THRESHOLD_BYTES`] are
+    /// transparently compressed with gzip and sent with
+    /// `Content-Encoding: gzip`. The graphann server does NOT decode
+    /// gzipped request bodies — enabling this against a stock server
+    /// surfaces as silent 400 "Invalid JSON body" errors on batches
+    /// that cross the threshold. Default `false`. See
+    /// [`ClientBuilder::compress_requests`].
+    pub(crate) compress_requests: bool,
 }
 
 /// API key wrapped so [`Debug`] never leaks the secret value.
@@ -118,6 +126,7 @@ impl Default for ClientConfig {
             singleflight: true,
             extra_headers: HeaderMap::new(),
             user_agent: default_user_agent(),
+            compress_requests: false,
         }
     }
 }
@@ -175,6 +184,21 @@ impl ClientBuilder {
     /// Cap for exponential backoff (default 20s).
     pub fn retry_cap(mut self, cap: Duration) -> Self {
         self.config.retry_cap = cap;
+        self
+    }
+
+    /// Enable transparent gzip compression of request bodies above
+    /// [`GZIP_THRESHOLD_BYTES`] (64 KiB). Default `false`.
+    ///
+    /// **Important:** the graphann HTTP server does not decode
+    /// `Content-Encoding: gzip` on request bodies. Leaving this off is
+    /// the safe choice; turn it on only when targeting a server you
+    /// know decodes gzip (e.g. behind a custom proxy that decompresses
+    /// before forwarding). Sending gzipped bodies to a stock graphann
+    /// surfaces as silent 400 "Invalid JSON body" errors on batches
+    /// that cross the threshold.
+    pub fn compress_requests(mut self, enabled: bool) -> Self {
+        self.config.compress_requests = enabled;
         self
     }
 
@@ -375,7 +399,7 @@ impl Client {
 
             if let Some(b) = body {
                 let raw = serde_json::to_vec(b)?;
-                if raw.len() >= GZIP_THRESHOLD_BYTES {
+                if self.inner.config.compress_requests && raw.len() >= GZIP_THRESHOLD_BYTES {
                     let mut encoder =
                         GzEncoder::new(Vec::with_capacity(raw.len() / 2), Compression::fast());
                     encoder.write_all(&raw)?;

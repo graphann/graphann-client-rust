@@ -4,6 +4,27 @@ All notable changes to the `graphann` Rust SDK are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.1] - 2026-04-30
+
+### Fixed
+
+- Request-body gzip is now opt-in. Versions ≤0.5.0 transparently
+  gzipped any request body ≥64 KiB and emitted `Content-Encoding: gzip`,
+  but the graphann HTTP server does not decode gzipped request bodies.
+  The result was silent 400 "Invalid JSON body" errors on `add_documents`
+  / `import_documents` batches that crossed the threshold (a single 50-doc
+  geo-intel batch was enough to trigger it), surfaced by callers as
+  intermittent failure modes that depended on payload size. Default
+  builders now skip gzip regardless of body size; opt back in via
+  `ClientBuilder::compress_requests(true)` when targeting an environment
+  that decodes gzip (e.g. behind a proxy that decompresses before
+  forwarding to graphann).
+
+### Added
+
+- `ClientBuilder::compress_requests(bool)` to opt into the previous
+  auto-gzip behaviour when needed.
+
 ## [0.5.0] - 2026-04-30
 
 ### Changed (BREAKING)
