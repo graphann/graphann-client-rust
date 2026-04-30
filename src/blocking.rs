@@ -144,7 +144,7 @@ impl_blocking_methods! {
     /// Sync wrapper for [`crate::Client::bulk_delete_by_external_ids`].
     pub fn bulk_delete_by_external_ids(&self, index_id: &str, ids: Vec<String>) -> Result<BulkDeleteResponse, Error> => bulk_delete_by_external_ids;
     /// Sync wrapper for [`crate::Client::cleanup_orphans`].
-    pub fn cleanup_orphans(&self) -> Result<crate::types::CleanupOrphansResponse, Error> => cleanup_orphans;
+    pub fn cleanup_orphans(&self, min_age: std::time::Duration, dry_run: bool) -> Result<crate::types::CleanupOrphansResponse, Error> => cleanup_orphans;
     /// Sync wrapper for [`crate::Client::run_index_gc`].
     pub fn run_index_gc(&self, index_id: &str) -> Result<crate::types::GCResponse, Error> => run_index_gc;
     /// Sync wrapper for [`crate::Client::run_admin_gc`].

@@ -6,6 +6,17 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed (BREAKING)
+
+- `Client::cleanup_orphans` / `BlockingClient::cleanup_orphans` now take
+  `min_age: Duration` and `dry_run: bool` parameters. Pass
+  `Duration::ZERO, false` to preserve the previous behaviour (server
+  defaults: 1h min-age, real sweep). Server enforces a 5-minute floor on
+  positive `min_age` values.
+- `CleanupOrphansResponse` gains `min_age: String` (Go duration string
+  echoed by the server) and `dry_run: bool` fields. Both default to
+  empty/false on older servers.
+
 ## [0.3.0] - 2026-04-28
 
 ### Removed (BREAKING)

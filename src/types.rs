@@ -378,14 +378,26 @@ pub struct BulkDeleteByExternalIdsRequest {
 }
 
 /// Cleanup orphans response.
+///
+/// `min_age` is a Go-style duration string echoing the cutoff the server
+/// actually applied (e.g. `"1h0m0s"`, `"24h0m0s"`). `dry_run` echoes the
+/// dry-run flag — when `true`, `removed` is what would have been deleted,
+/// not what was deleted. Both fields default to empty/false when missing
+/// (older servers).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CleanupOrphansResponse {
-    /// Paths removed.
+    /// Paths removed (or that would have been removed in dry-run mode).
     #[serde(default)]
     pub removed: Vec<String>,
-    /// Bytes reclaimed.
+    /// Bytes reclaimed (or that would have been reclaimed in dry-run mode).
     #[serde(default)]
     pub freed_bytes: u64,
+    /// Echo of the minimum-age cutoff the server applied.
+    #[serde(default)]
+    pub min_age: String,
+    /// Echo of the dry-run flag.
+    #[serde(default)]
+    pub dry_run: bool,
 }
 
 /// Response body for `POST .../indexes/{id}/gc` and `POST /v1/admin/gc`.

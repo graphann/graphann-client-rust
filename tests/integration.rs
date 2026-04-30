@@ -666,6 +666,61 @@ async fn search_filter_equals_round_trip() {
 }
 
 #[tokio::test]
+async fn cleanup_orphans_default_omits_query_params() {
+    use wiremock::matchers::query_param_is_missing;
+
+    let (server, client) = fixture().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/admin/cleanup-orphans"))
+        .and(query_param_is_missing("min_age"))
+        .and(query_param_is_missing("dry_run"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "removed": ["/data/tenants/t/indexes/i.compact"],
+            "freed_bytes": 4096,
+            "min_age": "1h0m0s",
+            "dry_run": false,
+        })))
+        .mount(&server)
+        .await;
+
+    let resp = client
+        .cleanup_orphans(Duration::from_secs(0), false)
+        .await
+        .unwrap();
+    assert_eq!(resp.freed_bytes, 4096);
+    assert_eq!(resp.removed.len(), 1);
+    assert_eq!(resp.min_age, "1h0m0s");
+    assert!(!resp.dry_run);
+}
+
+#[tokio::test]
+async fn cleanup_orphans_passes_min_age_and_dry_run() {
+    use wiremock::matchers::query_param;
+
+    let (server, client) = fixture().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/admin/cleanup-orphans"))
+        .and(query_param("min_age", "24h0m0s"))
+        .and(query_param("dry_run", "true"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "removed": ["/data/tenants/t/indexes/i.pre-reembed.20260101T000000Z"],
+            "freed_bytes": 0,
+            "min_age": "24h0m0s",
+            "dry_run": true,
+        })))
+        .mount(&server)
+        .await;
+
+    let resp = client
+        .cleanup_orphans(Duration::from_secs(24 * 3600), true)
+        .await
+        .unwrap();
+    assert!(resp.dry_run);
+    assert_eq!(resp.min_age, "24h0m0s");
+    assert_eq!(resp.removed.len(), 1);
+}
+
+#[tokio::test]
 #[ignore]
 async fn live_smoke() {
     let base_url = match std::env::var("GRAPHANN_BASE_URL") {

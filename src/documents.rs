@@ -1,5 +1,7 @@
 //! Document ingestion + deletion + listing methods on [`crate::Client`].
 
+use std::time::Duration;
+
 use reqwest::Method;
 use serde_json::json;
 
@@ -202,8 +204,35 @@ impl Client {
     }
 
     /// `POST /v1/admin/cleanup-orphans` — admin-only.
-    pub async fn cleanup_orphans(&self) -> Result<CleanupOrphansResponse, Error> {
-        self.request_json(Method::POST, "v1/admin/cleanup-orphans", Some(&json!({})))
+    ///
+    /// Sweeps stale compaction artifacts (`*.old` / `*.compact` / `*.backup`
+    /// / `*.failed`) and pre-reembed snapshots (`*.pre-reembed.<timestamp>`)
+    /// from every tenant's data tree.
+    ///
+    /// `min_age` is the minimum age before an artifact is eligible for
+    /// removal. Pass [`Duration::ZERO`] to use the server default (1h). The
+    /// server enforces a 5-minute floor — passing a smaller positive value
+    /// is rejected with HTTP 400.
+    ///
+    /// When `dry_run` is `true`, the server enumerates what *would* have
+    /// been removed without touching disk. The returned response echoes
+    /// the effective `min_age` and `dry_run` so callers can confirm what
+    /// happened.
+    pub async fn cleanup_orphans(
+        &self,
+        min_age: Duration,
+        dry_run: bool,
+    ) -> Result<CleanupOrphansResponse, Error> {
+        let mut path = String::from("v1/admin/cleanup-orphans");
+        let mut sep = '?';
+        if !min_age.is_zero() {
+            path.push_str(&format!("{sep}min_age={}", format_duration(min_age)));
+            sep = '&';
+        }
+        if dry_run {
+            path.push_str(&format!("{sep}dry_run=true"));
+        }
+        self.request_json(Method::POST, &path, Some(&json!({})))
             .await
     }
 
@@ -245,4 +274,76 @@ fn urlencode(input: &str) -> String {
         }
     }
     out
+}
+
+/// Formats a [`Duration`] as a Go-style duration string the GraphANN
+/// server understands (e.g. `"1h"`, `"24h0m0s"`, `"30m"`, `"500ms"`).
+///
+/// Mirrors Go's `time.Duration.String` output for the unit boundaries the
+/// server cares about. Sub-second precision is emitted as plain
+/// `"<n>ms"` / `"<n>µs"` / `"<n>ns"` to keep parsing trivial server-side.
+fn format_duration(d: Duration) -> String {
+    let total_nanos = d.as_nanos();
+    if total_nanos == 0 {
+        return "0s".to_string();
+    }
+    if total_nanos % 1_000 != 0 {
+        // sub-microsecond precision; drop straight to nanoseconds.
+        return format!("{}ns", total_nanos);
+    }
+    let total_micros = total_nanos / 1_000;
+    if total_micros % 1_000 != 0 {
+        return format!("{}µs", total_micros);
+    }
+    let total_millis = d.as_millis();
+    if total_millis % 1_000 != 0 {
+        return format!("{}ms", total_millis);
+    }
+    let total_secs = d.as_secs();
+    let h = total_secs / 3_600;
+    let m = (total_secs % 3_600) / 60;
+    let s = total_secs % 60;
+    if h > 0 {
+        format!("{}h{}m{}s", h, m, s)
+    } else if m > 0 {
+        format!("{}m{}s", m, s)
+    } else {
+        format!("{}s", s)
+    }
+}
+
+#[cfg(test)]
+mod duration_format_tests {
+    use super::format_duration;
+    use std::time::Duration;
+
+    #[test]
+    fn one_hour() {
+        assert_eq!(format_duration(Duration::from_secs(3600)), "1h0m0s");
+    }
+
+    #[test]
+    fn twenty_four_hours() {
+        assert_eq!(format_duration(Duration::from_secs(24 * 3600)), "24h0m0s");
+    }
+
+    #[test]
+    fn thirty_minutes() {
+        assert_eq!(format_duration(Duration::from_secs(30 * 60)), "30m0s");
+    }
+
+    #[test]
+    fn five_minutes() {
+        assert_eq!(format_duration(Duration::from_secs(5 * 60)), "5m0s");
+    }
+
+    #[test]
+    fn five_hundred_ms() {
+        assert_eq!(format_duration(Duration::from_millis(500)), "500ms");
+    }
+
+    #[test]
+    fn zero() {
+        assert_eq!(format_duration(Duration::ZERO), "0s");
+    }
 }
