@@ -4,6 +4,33 @@ All notable changes to the `graphann` Rust SDK are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.0] - 2026-05-01
+
+### Added
+
+- `SearchRequest::rerank`, `SearchRequest::candidate_k`, and
+  `SearchRequest::rerank_k` fields wire the optional cross-encoder
+  reranker. When the server has a reranker configured (via
+  `--reranker-url`), set `rerank: true` to rescore the top-`candidate_k`
+  HNSW candidates with the reranker and return the top-`rerank_k` (or
+  top-`k`). Defaults: `candidate_k = max(4*k, 50)` (server clamps to
+  `[k, 1000]`), `rerank_k = k`. No-op against non-rerank-aware servers
+  — safe to roll out unconditionally.
+- `SearchResult::rerank_score: Option<f32>` — `Some(_)` only when the
+  server actually reranked this entry. Carries the cross-encoder's
+  native relevance score (different scale from cosine, typically
+  -10..10 for bge-reranker-v2-m3) and reflects the result ordering.
+  `None` means: server has no reranker, the request didn't ask for
+  rerank, or the reranker errored and the server fell back to
+  first-stage results.
+
+### Unchanged
+
+- `SearchResult::score` is still always the first-stage cosine
+  similarity, regardless of rerank state. Existing client code that
+  only reads `score` keeps working — even when accidentally hitting
+  a rerank-enabled endpoint.
+
 ## [0.5.1] - 2026-04-30
 
 ### Fixed

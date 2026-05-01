@@ -46,6 +46,26 @@ async fn main() -> Result<(), graphann::Error> {
     };
     let _results = client.search("i_abc123", req).await?;
 
+    // Optional cross-encoder reranking. No-op against servers without
+    // a `--reranker-url` configured; safe to set unconditionally.
+    let req = SearchRequest {
+        query: Some("what does the standard say about audit trails?".into()),
+        k: 10,
+        rerank: true,                  // opt in per query
+        candidate_k: Some(50),         // HNSW pool size before rerank (default max(4*k, 50))
+        rerank_k: Some(10),            // post-rerank result count (default k)
+        ..Default::default()
+    };
+    let response = client.search("i_abc123", req).await?;
+    for hit in &response.results {
+        // hit.score is always cosine similarity. hit.rerank_score is
+        // Some only when the server actually reranked this entry.
+        match hit.rerank_score {
+            Some(s) => println!("{}: rerank={:.3} cosine={:.3}", hit.id, s, hit.score),
+            None    => println!("{}: cosine={:.3}", hit.id, hit.score),
+        }
+    }
+
     Ok(())
 }
 ```

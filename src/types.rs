@@ -527,6 +527,11 @@ pub struct DeleteChunksResponse {
 ///
 /// Supply either `query` (text; embedded server-side) or `vector`
 /// (pre-computed embedding). Both fields may be set for a hybrid search.
+///
+/// The `rerank`/`candidate_k`/`rerank_k` fields opt in to cross-encoder
+/// reranking when the server has a reranker configured (via
+/// `--reranker-url`). Silently no-op against servers without one — safe
+/// to set unconditionally.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SearchRequest {
     /// Text query — embedded server-side.
@@ -541,6 +546,21 @@ pub struct SearchRequest {
     /// Optional filter for RBAC / metadata pruning.
     #[serde(default, skip_serializing_if = "SearchFilter::is_empty")]
     pub filter: SearchFilter,
+    /// Enable cross-encoder rerank of the top-`candidate_k` HNSW
+    /// candidates. Effective only when the server has a reranker
+    /// configured AND `query` (text) is supplied — vector-only requests
+    /// have no text to feed the cross-encoder. Defaults to `false`.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub rerank: bool,
+    /// First-stage candidate pool size fed to the reranker. Effective
+    /// only when `rerank` is true. `None` (the default) tells the
+    /// server to use `max(4*k, 50)`. The server clamps to `[k, 1000]`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub candidate_k: Option<u32>,
+    /// Number of results to return AFTER reranking. Effective only when
+    /// `rerank` is true. `None` defaults to `k`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rerank_k: Option<u32>,
 }
 
 fn default_k() -> u32 {
@@ -578,6 +598,15 @@ impl SearchFilter {
 }
 
 /// One result returned from `search`.
+///
+/// `score` is always the first-stage cosine similarity (higher is
+/// better) regardless of whether reranking ran. `rerank_score` is
+/// `Some(_)` only when the server actually applied the cross-encoder
+/// reranker to this entry — it carries the reranker's native score
+/// (different scale, typically roughly -10..10 for bge-reranker-v2-m3)
+/// and drives the result ordering. When `None`, ordering is by
+/// `score` and the response can be treated as a plain non-rerank
+/// search.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SearchResult {
     /// Stable chunk identifier — string form used over the wire.
@@ -586,10 +615,13 @@ pub struct SearchResult {
     /// Chunk text (when included).
     #[serde(default)]
     pub text: String,
-    /// Distance / similarity score. Lower is closer for L2 / cosine
-    /// distance modes; the server picks the metric per index.
+    /// First-stage cosine similarity. Higher is better.
     #[serde(default)]
     pub score: f32,
+    /// Cross-encoder relevance score, populated only when the server
+    /// actually reranked this entry.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rerank_score: Option<f32>,
     /// Optional structured metadata.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata: Option<JsonValue>,

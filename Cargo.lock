@@ -378,7 +378,7 @@ dependencies = [
 
 [[package]]
 name = "graphann"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "bytes",
  "flate2",
