@@ -95,7 +95,8 @@ cargo run --example quickstart
 Health        health, ready, version
 Tenants       list_tenants, create_tenant, get_tenant, delete_tenant
 Indexes       list_indexes, create_index, get_index, delete_index, update_index,
-              clear_index, build_index, compact_index, get_live_stats, get_index_status
+              clear_index, build_index, compact_index, flush_index, rebuild_graph,
+              get_live_stats, get_index_status
 Documents     add_documents, import_documents, get_pending_status, process_pending,
               clear_pending, get_document, delete_document, bulk_delete_documents,
               bulk_delete_by_external_ids, get_chunk, delete_chunks,
@@ -130,7 +131,9 @@ while let Some(page) = stream.try_next().await? {
   Unavailable`.
 - Falls back to exponential backoff with deterministic jitter on
   retryable transport / status errors.
-- Request bodies above 64 KiB are gzipped before sending.
+- Optional request-body gzip above 64 KiB, **opt-in** via
+  `ClientBuilder::compress_requests(true)` (off by default — the stock
+  graphann server does not decode gzipped request bodies).
 - Optional LRU + TTL response cache, invalidated on demand via
   `client.invalidate_cache()`.
 - Optional Tokio-backed singleflight coalesces identical concurrent

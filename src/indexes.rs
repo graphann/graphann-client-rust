@@ -10,8 +10,8 @@ use serde_json::json;
 use crate::client::Client;
 use crate::error::Error;
 use crate::types::{
-    CreateIndexRequest, Index, IndexStatus, ListIndexesResponse, LiveIndexStats, UpdateIndexRequest,
-    UpsertResourceRequest, UpsertResourceResponse,
+    CreateIndexRequest, FlushResponse, Index, IndexStatus, ListIndexesResponse, LiveIndexStats,
+    RebuildGraphResponse, UpdateIndexRequest, UpsertResourceRequest, UpsertResourceResponse,
 };
 
 impl Client {
@@ -97,6 +97,37 @@ impl Client {
         let tenant = self.require_tenant()?;
         let path = format!("v1/tenants/{}/indexes/{}/compact", tenant, index_id);
         self.request_json::<serde_json::Value, _>(Method::POST, &path, Some(&json!({})))
+            .await
+    }
+
+    /// `POST /v1/tenants/{tenantID}/indexes/{indexID}/flush`.
+    ///
+    /// Persists the live index's in-memory delta. Pairs with the
+    /// `defer_save` / `bulk` ingest options on
+    /// [`crate::AddDocumentsRequest`]: any pending bulk-deferred HNSW
+    /// graph is built once — concurrently — inside the flush and
+    /// persisted in the same call. Safe to call on a clean index
+    /// (no-op-ish rewrite). The handler reads no body; the SDK sends
+    /// `{}` because the server requires `Content-Type: application/json`
+    /// on every POST.
+    pub async fn flush_index(&self, index_id: &str) -> Result<FlushResponse, Error> {
+        let tenant = self.require_tenant()?;
+        let path = format!("v1/tenants/{}/indexes/{}/flush", tenant, index_id);
+        self.request_json(Method::POST, &path, Some(&json!({})))
+            .await
+    }
+
+    /// `POST /v1/tenants/{tenantID}/indexes/{indexID}/rebuild-graph`.
+    ///
+    /// In-place delta-HNSW rebuild — a migration endpoint for indexes
+    /// ingested before the 2026-06 neighbor-selection fix, whose delta
+    /// graphs may be fragmented (reduced recall). Returns
+    /// [`crate::error::Error::Conflict`] (HTTP 409) while a compaction
+    /// is in progress; retry after a back-off.
+    pub async fn rebuild_graph(&self, index_id: &str) -> Result<RebuildGraphResponse, Error> {
+        let tenant = self.require_tenant()?;
+        let path = format!("v1/tenants/{}/indexes/{}/rebuild-graph", tenant, index_id);
+        self.request_json(Method::POST, &path, Some(&json!({})))
             .await
     }
 

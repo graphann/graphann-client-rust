@@ -1,9 +1,9 @@
 [package]
 name = "graphann"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2021"
 rust-version = "1.75"
-license = "Apache-2.0"
+license-file = "LICENSE"
 description = "Official Rust client SDK for the GraphANN vector database."
 repository = "https://github.com/graphann/graphann-client-rust"
 homepage = "https://graphann.com"

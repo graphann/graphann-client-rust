@@ -13,14 +13,14 @@ use crate::error::Error;
 use crate::types::{
     AddDocumentsRequest, AddDocumentsResponse, BulkDeleteResponse, Chunk, ClusterHealth,
     ClusterNodesResponse, ClusterShardsResponse, CreateApiKeyRequest, CreateApiKeyResponse,
-    CreateIndexRequest, CreateTenantRequest, DeleteChunksResponse, DeleteDocumentResponse, Health,
-    ImportDocumentsRequest, ImportDocumentsResponse, Index, IndexStatus, Job, ListApiKeysResponse,
-    ListIndexesResponse, ListJobsFilter, ListJobsResponse, ListSharedIndexesResponse,
-    ListTenantsResponse, ListUserIndexesResponse, LiveIndexStats, LlmSettings, MultiSearchRequest,
-    MultiSearchResponse, PendingStatus, Ready, SearchRequest, SearchResponse,
-    SwitchEmbeddingModelRequest, SwitchEmbeddingModelResponse, SyncDocumentsRequest,
-    SyncDocumentsResponse, Tenant, UpdateIndexRequest, UpsertResourceRequest,
-    UpsertResourceResponse, VersionInfo,
+    CreateIndexRequest, CreateTenantRequest, DeleteChunksResponse, DeleteDocumentResponse,
+    FlushResponse, Health, ImportDocumentsRequest, ImportDocumentsResponse, Index, IndexStatus,
+    Job, ListApiKeysResponse, ListIndexesResponse, ListJobsFilter, ListJobsResponse,
+    ListSharedIndexesResponse, ListTenantsResponse, ListUserIndexesResponse, LiveIndexStats,
+    LlmSettings, MultiSearchRequest, MultiSearchResponse, PendingStatus, Ready,
+    RebuildGraphResponse, SearchRequest, SearchResponse, SwitchEmbeddingModelRequest,
+    SwitchEmbeddingModelResponse, SyncDocumentsRequest, SyncDocumentsResponse, Tenant,
+    UpdateIndexRequest, UpsertResourceRequest, UpsertResourceResponse, VersionInfo,
 };
 
 /// Synchronous client built on top of an internal Tokio runtime.
@@ -124,6 +124,10 @@ impl_blocking_methods! {
     pub fn clear_index(&self, index_id: &str) -> Result<serde_json::Value, Error> => clear_index;
     /// Sync wrapper for [`crate::Client::compact_index`].
     pub fn compact_index(&self, index_id: &str) -> Result<serde_json::Value, Error> => compact_index;
+    /// Sync wrapper for [`crate::Client::flush_index`].
+    pub fn flush_index(&self, index_id: &str) -> Result<FlushResponse, Error> => flush_index;
+    /// Sync wrapper for [`crate::Client::rebuild_graph`].
+    pub fn rebuild_graph(&self, index_id: &str) -> Result<RebuildGraphResponse, Error> => rebuild_graph;
 
     /// Sync wrapper for [`crate::Client::add_documents`].
     pub fn add_documents(&self, index_id: &str, req: AddDocumentsRequest) -> Result<AddDocumentsResponse, Error> => add_documents;

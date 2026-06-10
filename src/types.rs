@@ -243,6 +243,28 @@ pub struct ListIndexesResponse {
     pub total: u64,
 }
 
+/// Response from `POST /v1/tenants/.../indexes/.../flush`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct FlushResponse {
+    /// `true` when the flush completed.
+    #[serde(default)]
+    pub flushed: bool,
+}
+
+/// Response from `POST /v1/tenants/.../indexes/.../rebuild-graph`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct RebuildGraphResponse {
+    /// `true` when the delta graph was rebuilt.
+    #[serde(default)]
+    pub rebuilt: bool,
+    /// Number of chunks re-inserted into the rebuilt graph.
+    #[serde(default)]
+    pub chunks: u64,
+    /// Wall-clock rebuild time in milliseconds.
+    #[serde(default)]
+    pub wall_ms: u64,
+}
+
 // =====================================================================
 // Documents
 // =====================================================================
@@ -274,6 +296,18 @@ pub struct Document {
     /// RBAC: source git commit sha.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub commit_sha: Option<String>,
+    /// Precomputed embedding vector. When **every** document in the
+    /// batch carries a non-empty vector the server skips embedding and
+    /// ingests the supplied vectors directly. Mixed batches (some with,
+    /// some without) are rejected with HTTP 400. Length must match the
+    /// index dimension once it is fixed; a fresh index (dimension 0)
+    /// accepts any length and the first ingest fixes the dimension.
+    ///
+    /// On the precomputed path inserts are idempotent by external id
+    /// (server-side upsert), so the per-document [`Document::upsert`]
+    /// delete-then-add pre-pass is intentionally not run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vector: Option<Vec<f32>>,
 }
 
 fn is_false(b: &bool) -> bool {
@@ -285,6 +319,21 @@ fn is_false(b: &bool) -> bool {
 pub struct AddDocumentsRequest {
     /// Documents to add.
     pub documents: Vec<Document>,
+    /// Skip the per-batch full-delta save. Ingested data stays in
+    /// memory (index dirty) but is still searchable; persist it later
+    /// via [`crate::Client::flush_index`]. Default `false` preserves
+    /// the per-batch, immediately-persisted behaviour.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub defer_save: bool,
+    /// Bulk-load mode. Implies `defer_save` **and** defers the per-node
+    /// HNSW insert — the delta graph is built once, concurrently, at
+    /// [`crate::Client::flush_index`]. Bulk-ingested data is NOT
+    /// searchable until the flush builds the graph, with one safety
+    /// net: the first search against a pending deferred build
+    /// transparently triggers it server-side (build-on-read), so
+    /// searches never silently miss bulk data. Default `false`.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub bulk: bool,
 }
 
 /// `POST .../documents` response.
@@ -300,6 +349,15 @@ pub struct AddDocumentsResponse {
     /// `[]store.ChunkID` (= `[]string`); decoding as `Vec<i64>` fails.
     #[serde(default)]
     pub chunk_ids: Vec<String>,
+    /// External ids, one per submitted document and positionally
+    /// aligned with the request array. Present only when the server
+    /// minted at least one id (sharded ingest of id-less documents —
+    /// the external id is the shard routing key); when present it
+    /// carries ALL ids, minted and client-supplied alike. Persist
+    /// these as the durable document ids. `None` on unsharded
+    /// deployments and older servers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub external_ids: Option<Vec<String>>,
 }
 
 /// `POST .../import` body.
@@ -561,6 +619,16 @@ pub struct SearchRequest {
     /// `rerank` is true. `None` defaults to `k`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rerank_k: Option<u32>,
+    /// Per-query HNSW search expansion factor. `None` (or `Some(0)`)
+    /// uses the server default (`--search-ef`, 64 unless overridden).
+    /// The server clamps rather than rejects: values are capped at
+    /// 2000. Mode-local floors may raise the effective ef on top of
+    /// the request (scalar-quant and guided-recompute paths), and
+    /// binary/PQ flat scans ignore ef entirely. The identical clamp is
+    /// applied on the cluster shard-query bridge, so sharded searches
+    /// honour the same bound.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ef_search: Option<u32>,
 }
 
 fn default_k() -> u32 {
@@ -628,6 +696,16 @@ pub struct SearchResult {
 }
 
 /// Search response envelope.
+///
+/// The `partial` / `shards_total` / `shards_ok` / `degraded_shards`
+/// fields are additive and appear **only** on the sharded
+/// scatter-gather path (cluster deployments where the index spans more
+/// than one shard). Single-node and single-shard deployments return
+/// the pre-sharding `{results, total}` shape — treat every sharded
+/// field as optional. Sharded caveats: `rerank` / `candidate_k` /
+/// `rerank_k` are not applied on the sharded path, text queries are
+/// embedded once on the coordinator, and results are deduplicated by
+/// external id keeping the highest score.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SearchResponse {
     /// Hits, ordered by relevance.
@@ -636,6 +714,20 @@ pub struct SearchResponse {
     /// Total hits returned in `results`. The server caps with k.
     #[serde(default)]
     pub total: u64,
+    /// `Some(true)` when at least one shard contributed nothing to the
+    /// result set. Always present on the sharded path; absent otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub partial: Option<bool>,
+    /// Total shards the query fanned out to (sharded path only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shards_total: Option<u32>,
+    /// Shards that answered successfully (sharded path only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shards_ok: Option<u32>,
+    /// Ids of shards that degraded the response. Present only when
+    /// non-empty, even on the sharded path.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub degraded_shards: Option<Vec<String>>,
 }
 
 /// Org-level multi-source search request.

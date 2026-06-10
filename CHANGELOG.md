@@ -4,6 +4,81 @@ All notable changes to the `graphann` Rust SDK are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.7.0] - 2026-06-10
+
+### Added
+
+- **Precomputed-vector ingest**: `Document::vector: Option<Vec<f32>>`.
+  When every document in an `add_documents` batch carries a non-empty
+  vector, the server skips embedding and ingests the vectors directly.
+  Mixed batches (some with, some without) are rejected with HTTP 400.
+  Vector length must match the index dimension once fixed; a fresh
+  index (dimension 0) accepts any length and the first ingest fixes it.
+  Precomputed inserts are idempotent by external id server-side, so the
+  per-document `upsert` pre-delete pass does not run on this path. The
+  16 MB request-body cap applies (≈1700 docs per precomputed batch).
+- **Bulk-load ingest options**: `AddDocumentsRequest::defer_save` and
+  `AddDocumentsRequest::bulk` (both default `false` — wire shape for
+  default requests is unchanged). `defer_save` skips the per-batch
+  full-delta save; data stays in memory (still searchable) until a
+  flush. `bulk` implies `defer_save` and additionally defers the
+  per-node HNSW insert — the delta graph is built once, concurrently,
+  at flush. Bulk-ingested data is not searchable until then, except
+  that the first search against a pending deferred build transparently
+  triggers it server-side (build-on-read).
+- `Client::flush_index(index_id)` / `BlockingClient::flush_index` —
+  `POST .../flush`. Persists the live index's in-memory delta and
+  builds any pending bulk-deferred graph in the same call. Sends `{}`
+  with `Content-Type: application/json` (required by the server's
+  middleware on every POST). Returns the new `FlushResponse`
+  (`flushed: bool`).
+- `Client::rebuild_graph(index_id)` / `BlockingClient::rebuild_graph`
+  — `POST .../rebuild-graph`. In-place delta-HNSW rebuild; migration
+  endpoint for indexes ingested before the 2026-06 neighbor-selection
+  fix (fragmented delta graphs / reduced recall). Returns the new
+  `RebuildGraphResponse` (`rebuilt`, `chunks`, `wall_ms`); 409 while a
+  compaction is in flight maps to `Error::Conflict` — retry after a
+  back-off.
+- **Per-query search expansion factor**:
+  `SearchRequest::ef_search: Option<u32>`. `None` (or `Some(0)`) uses
+  the server default (`--search-ef`, 64 unless overridden). The server
+  clamps rather than rejects (cap 2000); the identical clamp applies on
+  the cluster shard-query bridge. Binary/PQ flat scans ignore ef;
+  scalar-quant and guided-recompute paths may raise the effective ef
+  via mode-local floors.
+- **Sharded-search response fields** on `SearchResponse` (all optional;
+  present only on the cluster scatter-gather path when an index spans
+  more than one shard): `partial: Option<bool>`,
+  `shards_total: Option<u32>`, `shards_ok: Option<u32>`, and
+  `degraded_shards: Option<Vec<String>>` (present only when
+  non-empty). Single-node deployments keep the byte-identical
+  `{results, total}` shape. Sharded caveats: `rerank` / `candidate_k`
+  / `rerank_k` are not applied on the sharded path; results are
+  deduplicated by external id keeping the highest score.
+- `AddDocumentsResponse::external_ids: Option<Vec<String>>` — one
+  entry per submitted document, positionally aligned. Present only
+  when the server minted at least one external id (sharded ingest of
+  id-less documents); carries all ids (minted + client-supplied) when
+  present. `None` on unsharded deployments and older servers.
+
+### Changed
+
+- `AddDocumentsRequest` gained fields; exact struct-literal
+  construction (`AddDocumentsRequest { documents }`) needs
+  `..Default::default()`, same as the `SearchRequest` field additions
+  in 0.6.0. Wire behaviour of existing requests is unchanged — the new
+  fields are skipped during serialisation at their defaults, so
+  pre-0.7 servers (which reject unknown JSON fields) are unaffected.
+
+### Unchanged
+
+- Request-body gzip stays **opt-in** (`ClientBuilder::compress_requests`,
+  default `false`) per 0.5.1 — no regression.
+- `update_index` already supported `compression` / `approximate`
+  (since 0.3.0); `compact_index` already sends `{}` with
+  `Content-Type: application/json` and maps 409 to `Error::Conflict`;
+  `cleanup_orphans` already takes `min_age` / `dry_run` (since 0.5.0).
+
 ## [0.6.0] - 2026-05-01
 
 ### Added

@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use graphann::{
     AddDocumentsRequest, ApiError, ClientBuilder, CreateIndexRequest, CreateTenantRequest,
-    Document, Error, ListJobsFilter, LlmSettings, SearchFilter, SearchRequest,
+    Document, Error, ListJobsFilter, LlmSettings, SearchFilter, SearchRequest, SearchResponse,
     SwitchEmbeddingModelRequest, SyncDocument, SyncDocumentsRequest, UpsertResourceRequest,
 };
 use http::header::HeaderName;
@@ -282,6 +282,7 @@ async fn payload_too_large_maps_to_typed_error() {
             text: "x".repeat(2_000_000),
             ..Default::default()
         }],
+        ..Default::default()
     };
     let err = client.add_documents("i_abc", docs).await.unwrap_err();
     matches!(err, Error::PayloadTooLarge(_));
@@ -720,6 +721,288 @@ async fn cleanup_orphans_passes_min_age_and_dry_run() {
     assert_eq!(resp.removed.len(), 1);
 }
 
+// --- ingest options + precomputed vectors (v0.7.0) -------------------------
+
+/// Per-document `vector` rides the wire on `add_documents`. Values are
+/// chosen to be exactly representable in f32 so the f32→f64 JSON
+/// round-trip stays bit-identical for the partial-body match.
+#[tokio::test]
+async fn add_documents_precomputed_vectors_serialise() {
+    use wiremock::matchers::body_partial_json;
+
+    let (server, client) = fixture().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/tenants/t_test/indexes/i_abc/documents"))
+        .and(body_partial_json(json!({
+            "documents": [
+                {"id": "doc-1", "text": "alpha", "vector": [0.5, 0.25, -1.0]}
+            ]
+        })))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+            "added": 1,
+            "index_id": "i_abc",
+            "chunk_ids": ["chunk-1"]
+        })))
+        .mount(&server)
+        .await;
+
+    let resp = client
+        .add_documents(
+            "i_abc",
+            AddDocumentsRequest {
+                documents: vec![Document {
+                    id: Some("doc-1".into()),
+                    text: "alpha".into(),
+                    vector: Some(vec![0.5, 0.25, -1.0]),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.added, 1);
+    assert_eq!(resp.external_ids, None);
+}
+
+/// `defer_save` / `bulk` serialise as body fields when set.
+#[tokio::test]
+async fn add_documents_defer_save_and_bulk_flags_serialise() {
+    use wiremock::matchers::body_partial_json;
+
+    let (server, client) = fixture().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/tenants/t_test/indexes/i_abc/documents"))
+        .and(body_partial_json(json!({"defer_save": true, "bulk": true})))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+            "added": 2,
+            "index_id": "i_abc",
+            "chunk_ids": ["chunk-1", "chunk-2"]
+        })))
+        .mount(&server)
+        .await;
+
+    let resp = client
+        .add_documents(
+            "i_abc",
+            AddDocumentsRequest {
+                documents: vec![
+                    Document {
+                        text: "alpha".into(),
+                        ..Default::default()
+                    },
+                    Document {
+                        text: "beta".into(),
+                        ..Default::default()
+                    },
+                ],
+                defer_save: true,
+                bulk: true,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.added, 2);
+}
+
+/// Default `AddDocumentsRequest` serialisation is byte-compatible with
+/// pre-0.7 SDKs: no `defer_save` / `bulk` / `vector` keys. Pins the wire
+/// shape because the server decodes with `DisallowUnknownFields` and
+/// older servers would 400 on unexpected keys.
+#[tokio::test]
+async fn add_documents_default_wire_shape_unchanged() {
+    let req = AddDocumentsRequest {
+        documents: vec![Document {
+            text: "a".into(),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let v = serde_json::to_value(&req).unwrap();
+    assert_eq!(v, json!({"documents": [{"text": "a"}]}));
+}
+
+/// `external_ids` decodes when the server minted ids (sharded ingest of
+/// id-less documents); positionally aligned with the request array.
+#[tokio::test]
+async fn add_documents_response_external_ids_decode() {
+    let (server, client) = fixture().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/tenants/t_test/indexes/i_abc/documents"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+            "added": 2,
+            "index_id": "i_abc",
+            "chunk_ids": ["chunk-1", "chunk-2"],
+            "external_ids": ["minted-1", "client-2"]
+        })))
+        .mount(&server)
+        .await;
+
+    let resp = client
+        .add_documents(
+            "i_abc",
+            AddDocumentsRequest {
+                documents: vec![
+                    Document {
+                        text: "alpha".into(),
+                        ..Default::default()
+                    },
+                    Document {
+                        id: Some("client-2".into()),
+                        text: "beta".into(),
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.external_ids,
+        Some(vec!["minted-1".to_string(), "client-2".to_string()])
+    );
+}
+
+/// `flush_index` POSTs `{}` with `Content-Type: application/json` (the
+/// server's middleware rejects body-less POSTs without the header) and
+/// decodes `{"flushed": true}`.
+#[tokio::test]
+async fn flush_index_round_trip() {
+    let (server, client) = fixture().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/tenants/t_test/indexes/i_abc/flush"))
+        .and(header("content-type", "application/json"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"flushed": true})))
+        .mount(&server)
+        .await;
+
+    let resp = client.flush_index("i_abc").await.unwrap();
+    assert!(resp.flushed);
+}
+
+/// `rebuild_graph` round trip — migration endpoint for pre-2026-06
+/// fragmented delta graphs.
+#[tokio::test]
+async fn rebuild_graph_round_trip() {
+    let (server, client) = fixture().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/tenants/t_test/indexes/i_abc/rebuild-graph"))
+        .and(header("content-type", "application/json"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "rebuilt": true,
+            "chunks": 52000,
+            "wall_ms": 1234
+        })))
+        .mount(&server)
+        .await;
+
+    let resp = client.rebuild_graph("i_abc").await.unwrap();
+    assert!(resp.rebuilt);
+    assert_eq!(resp.chunks, 52000);
+    assert_eq!(resp.wall_ms, 1234);
+}
+
+/// `rebuild_graph` while a compaction is running surfaces the server's
+/// 409 as the typed `Error::Conflict`.
+#[tokio::test]
+async fn rebuild_graph_conflict_maps_to_typed_error() {
+    let (server, client) = fixture().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/tenants/t_test/indexes/i_abc/rebuild-graph"))
+        .respond_with(ResponseTemplate::new(409).set_body_json(json!({
+            "error": {"code": "conflict", "message": "compaction already in progress for this index"}
+        })))
+        .mount(&server)
+        .await;
+
+    let err = client.rebuild_graph("i_abc").await.unwrap_err();
+    assert!(matches!(err, Error::Conflict(_)));
+}
+
+// --- ef_search + sharded search response (v0.7.0) ---------------------------
+
+/// `ef_search` serialises when set and is omitted entirely by default
+/// (0/omitted = server default, `--search-ef`).
+#[tokio::test]
+async fn search_ef_search_serialises_and_default_omits() {
+    use wiremock::matchers::body_partial_json;
+
+    let v = serde_json::to_value(SearchRequest::default()).unwrap();
+    assert!(v.get("ef_search").is_none());
+
+    let (server, client) = fixture().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/tenants/t_test/indexes/i_abc/search"))
+        .and(body_partial_json(json!({"ef_search": 128})))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "results": [],
+            "total": 0
+        })))
+        .mount(&server)
+        .await;
+
+    let resp = client
+        .search(
+            "i_abc",
+            SearchRequest {
+                query: Some("hello".into()),
+                k: 5,
+                ef_search: Some(128),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.total, 0);
+}
+
+/// Sharded scatter-gather responses carry the additive partial-results
+/// keys; `degraded_shards` is present only when non-empty.
+#[tokio::test]
+async fn search_response_sharded_fields_decode() {
+    let (server, client) = fixture().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/tenants/t_test/indexes/i_abc/search"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "results": [{"id": "chunk-1", "text": "alpha", "score": 0.9}],
+            "total": 1,
+            "partial": true,
+            "shards_total": 4,
+            "shards_ok": 3,
+            "degraded_shards": ["shard-2"]
+        })))
+        .mount(&server)
+        .await;
+
+    let resp = client
+        .search(
+            "i_abc",
+            SearchRequest {
+                query: Some("alpha".into()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.total, 1);
+    assert_eq!(resp.partial, Some(true));
+    assert_eq!(resp.shards_total, Some(4));
+    assert_eq!(resp.shards_ok, Some(3));
+    assert_eq!(resp.degraded_shards, Some(vec!["shard-2".to_string()]));
+}
+
+/// Local (non-sharded) search responses stay exactly `{results, total}`
+/// — every sharded field decodes as `None`.
+#[tokio::test]
+async fn search_response_local_path_omits_sharded_fields() {
+    let resp: SearchResponse = serde_json::from_value(json!({"results": [], "total": 0})).unwrap();
+    assert_eq!(resp.partial, None);
+    assert_eq!(resp.shards_total, None);
+    assert_eq!(resp.shards_ok, None);
+    assert_eq!(resp.degraded_shards, None);
+}
+
 // --- gzip request-body tests ----------------------------------------------
 //
 // graphann's HTTP server does not decode `Content-Encoding: gzip` request
@@ -762,6 +1045,7 @@ async fn default_client_does_not_gzip_large_request_bodies() {
             text: big_text,
             ..Default::default()
         }],
+        ..Default::default()
     };
     let resp = client
         .add_documents("i_test", req)
@@ -803,6 +1087,7 @@ async fn compress_requests_opt_in_sets_gzip_header() {
             text: big_text,
             ..Default::default()
         }],
+        ..Default::default()
     };
     let resp = client
         .add_documents("i_test", req)

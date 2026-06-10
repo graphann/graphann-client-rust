@@ -89,7 +89,13 @@ async fn main() -> Result<(), Error> {
         })
         .collect();
     let added = client
-        .add_documents(&index.id, AddDocumentsRequest { documents: docs })
+        .add_documents(
+            &index.id,
+            AddDocumentsRequest {
+                documents: docs,
+                ..Default::default()
+            },
+        )
         .await?;
     println!("  -> added {} chunks", added.added);
 
