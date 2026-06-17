@@ -753,6 +753,10 @@ pub struct MultiSearchRequest {
     /// Restrict to documents created at or before this Unix timestamp.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub end_time: Option<i64>,
+    /// Drop hits whose distance to the query exceeds this threshold
+    /// (lower distance = closer). `None` (the default) applies no cutoff.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub distance_threshold: Option<f32>,
 }
 
 /// Hit returned by org-level search.
@@ -1069,7 +1073,11 @@ pub struct LlmSettings {
 // API Keys
 // =====================================================================
 
-/// Public projection of an API key — never carries the plaintext value.
+/// Per-key projection returned by the list endpoint — never carries the
+/// plaintext value. Field set matches the server's `APIKeyListItem`
+/// (`internal/server/apikey_handlers.go`): `{ id, user_id, name,
+/// created_at, last_used_at }`. There is no `prefix`, `expires_at`, or
+/// `description` on the wire.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ApiKey {
     /// Key id.
@@ -1078,55 +1086,60 @@ pub struct ApiKey {
     /// Owning user id.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user_id: Option<String>,
-    /// Display description.
+    /// Human-readable label for the key.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    /// Key prefix (safe to display, e.g. first 4 chars).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub prefix: Option<String>,
+    pub name: Option<String>,
     /// Creation timestamp.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub created_at: Option<String>,
     /// Last-used timestamp, when the server tracks it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_used_at: Option<String>,
-    /// Optional expiry.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub expires_at: Option<String>,
 }
 
 /// Response from `create_api_key`. Includes the **plaintext key**, returned
-/// only on the create response — store it client-side immediately.
+/// only on the create response — store it client-side immediately. Shape
+/// matches the server's `CreateAPIKeyResponse`: `{ id, name, user_id,
+/// plaintext, created_at }`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CreateApiKeyResponse {
-    /// Key metadata.
-    #[serde(flatten)]
-    pub key: ApiKey,
-    /// One-time plaintext value.
+    /// Key id.
+    #[serde(default)]
+    pub id: String,
+    /// Human-readable label for the key.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub plaintext_key: Option<String>,
-}
-
-/// Body for `create_api_key`.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct CreateApiKeyRequest {
-    /// Owning user id within the tenant.
+    pub name: Option<String>,
+    /// Owning user id.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user_id: Option<String>,
-    /// Free-text description.
+    /// One-time plaintext value. Returned exactly once at create time;
+    /// the server only stores its argon2id hash, so persist it now.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
+    pub plaintext: Option<String>,
+    /// Creation timestamp.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<String>,
 }
 
-/// Listing envelope returned by `list_api_keys`.
+/// Body for `create_api_key`. Both fields are sent; the server reads both
+/// (`internal/server/apikey_handlers.go`). `user_id` may be empty.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CreateApiKeyRequest {
+    /// Owning user id within the tenant. Empty string is accepted.
+    #[serde(default)]
+    pub user_id: String,
+    /// Human-readable label for the key.
+    #[serde(default)]
+    pub name: String,
+}
+
+/// Listing envelope returned by `list_api_keys`. The wrapper key is
+/// `api_keys`, matching the server's `ListAPIKeysResponse`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ListApiKeysResponse {
     /// Keys on this page.
     #[serde(default)]
     pub api_keys: Vec<ApiKey>,
-    /// Total returned.
-    #[serde(default)]
-    pub total: u64,
 }
 
 // =====================================================================

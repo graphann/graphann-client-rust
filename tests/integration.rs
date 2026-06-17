@@ -12,9 +12,10 @@ mod common;
 use std::time::Duration;
 
 use graphann::{
-    AddDocumentsRequest, ApiError, ClientBuilder, CreateIndexRequest, CreateTenantRequest,
-    Document, Error, ListJobsFilter, LlmSettings, SearchFilter, SearchRequest, SearchResponse,
-    SwitchEmbeddingModelRequest, SyncDocument, SyncDocumentsRequest, UpsertResourceRequest,
+    AddDocumentsRequest, ApiError, ClientBuilder, CreateApiKeyRequest, CreateIndexRequest,
+    CreateTenantRequest, Document, Error, ListJobsFilter, LlmSettings, SearchFilter, SearchRequest,
+    SearchResponse, SwitchEmbeddingModelRequest, SyncDocument, SyncDocumentsRequest,
+    UpsertResourceRequest,
 };
 use http::header::HeaderName;
 use serde_json::json;
@@ -1137,6 +1138,114 @@ async fn compress_requests_opt_in_skips_small_bodies() {
         })
         .await
         .expect("small body must skip gzip even when opt-in is set");
+}
+
+// --- api-key wire contract (v0.8.0) ----------------------------------------
+
+/// `create_api_key` sends `{ user_id, name }` and decodes the one-time
+/// secret from the server's `plaintext` JSON key (NOT `plaintext_key`).
+#[tokio::test]
+async fn create_api_key_parses_plaintext_field() {
+    use wiremock::matchers::body_partial_json;
+
+    let (server, client) = fixture().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/tenants/t_test/api-keys"))
+        .and(body_partial_json(json!({"user_id": "u_alice", "name": "ci-key"})))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+            "id": "k_abc",
+            "name": "ci-key",
+            "user_id": "u_alice",
+            "plaintext": "ak_secret_value",
+            "created_at": "2026-06-17T00:00:00Z",
+        })))
+        .mount(&server)
+        .await;
+
+    let resp = client
+        .create_api_key(CreateApiKeyRequest {
+            user_id: "u_alice".into(),
+            name: "ci-key".into(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(resp.id, "k_abc");
+    assert_eq!(resp.name.as_deref(), Some("ci-key"));
+    assert_eq!(resp.user_id.as_deref(), Some("u_alice"));
+    assert_eq!(resp.plaintext.as_deref(), Some("ak_secret_value"));
+}
+
+/// `create_api_key` request body serialises both `user_id` and `name`
+/// even when `user_id` is empty (server reads both keys).
+#[tokio::test]
+async fn create_api_key_request_serialises_both_fields() {
+    let v = serde_json::to_value(CreateApiKeyRequest {
+        user_id: String::new(),
+        name: "label".into(),
+    })
+    .unwrap();
+    assert_eq!(v, json!({"user_id": "", "name": "label"}));
+}
+
+/// `list_api_keys` reads the `api_keys` wrapper key (NOT `keys`) and the
+/// per-item `name` field.
+#[tokio::test]
+async fn list_api_keys_parses_api_keys_wrapper() {
+    let (server, client) = fixture().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/tenants/t_test/api-keys"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "api_keys": [
+                {
+                    "id": "k_abc",
+                    "user_id": "u_alice",
+                    "name": "ci-key",
+                    "created_at": "2026-06-17T00:00:00Z",
+                    "last_used_at": "2026-06-17T01:00:00Z",
+                }
+            ]
+        })))
+        .mount(&server)
+        .await;
+
+    let resp = client.list_api_keys().await.unwrap();
+    assert_eq!(resp.api_keys.len(), 1);
+    assert_eq!(resp.api_keys[0].id, "k_abc");
+    assert_eq!(resp.api_keys[0].name.as_deref(), Some("ci-key"));
+    assert_eq!(resp.api_keys[0].user_id.as_deref(), Some("u_alice"));
+    assert_eq!(resp.api_keys[0].last_used_at.as_deref(), Some("2026-06-17T01:00:00Z"));
+}
+
+/// `revoke_api_key` issues a DELETE against the keyed path.
+#[tokio::test]
+async fn revoke_api_key_round_trip() {
+    let (server, client) = fixture().await;
+    Mock::given(method("DELETE"))
+        .and(path("/v1/tenants/t_test/api-keys/k_abc"))
+        .respond_with(ResponseTemplate::new(204))
+        .mount(&server)
+        .await;
+    client.revoke_api_key("k_abc").await.unwrap();
+}
+
+/// `MultiSearchRequest::distance_threshold` serialises when set and is
+/// omitted entirely by default.
+#[tokio::test]
+async fn multi_search_distance_threshold_serialises_and_default_omits() {
+    use graphann::MultiSearchRequest;
+
+    let v = serde_json::to_value(MultiSearchRequest::default()).unwrap();
+    assert!(v.get("distance_threshold").is_none());
+
+    // 0.5 is exactly representable in f32, so the f32->f64 JSON widening
+    // stays bit-identical.
+    let v = serde_json::to_value(MultiSearchRequest {
+        query: "hi".into(),
+        distance_threshold: Some(0.5),
+        ..Default::default()
+    })
+    .unwrap();
+    assert_eq!(v["distance_threshold"], json!(0.5));
 }
 
 #[tokio::test]

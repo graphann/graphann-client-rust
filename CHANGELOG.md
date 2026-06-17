@@ -4,6 +4,29 @@ All notable changes to the `graphann` Rust SDK are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.8.0] - 2026-06-17
+
+### Fixed
+
+- **API-key wire contract corrected** to match the server
+  (`internal/server/apikey_handlers.go`). The create response now decodes
+  the one-time secret from the `plaintext` JSON key (was `plaintext_key`),
+  the list response reads the `api_keys` wrapper, and the key label rides
+  the `name` field (was `description`). `CreateApiKeyRequest` now sends
+  `{ user_id, name }` (both as plain strings; `user_id` may be empty) and
+  `ApiKey` carries `{ id, user_id, name, created_at, last_used_at }`. The
+  invented `prefix` / `expires_at` fields and the `total` list field are
+  removed. **Mildly breaking** for code that read `CreateApiKeyResponse::key`
+  / `plaintext_key`, `ApiKey::description` / `prefix` / `expires_at`, or
+  `CreateApiKeyRequest::description`: switch to the new field names.
+
+### Added
+
+- `MultiSearchRequest::distance_threshold: Option<f32>` — drop org-search
+  hits whose distance to the query exceeds the threshold. Omitted from the
+  wire by default.
+- `AGENTS.md` — an LLM-usage guide for coding agents driving the SDK.
+
 ## [0.7.0] - 2026-06-10
 
 ### Added

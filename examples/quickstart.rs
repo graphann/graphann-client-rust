@@ -4,7 +4,7 @@
 //!
 //! 1. Build a client
 //! 2. Create a tenant
-//! 3. (Skipped — server has no API-key endpoint yet; placeholder)
+//! 3. Create an index and upsert a resource
 //! 4. Ingest 10 documents
 //! 5. Search
 //! 6. Trigger a hot embedding-model swap

@@ -12,7 +12,7 @@ service.
 
 ```toml
 [dependencies]
-graphann = "0.1"
+graphann = "0.8"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
@@ -105,7 +105,7 @@ Search        search, search_text, search_vector, multi_search
 Jobs          switch_embedding_model, get_job, list_jobs, list_tenant_jobs
 Cluster       get_cluster_nodes, get_cluster_shards, get_cluster_health
 LLM Settings  get_llm_settings, update_llm_settings, delete_llm_settings
-API Keys      create_api_key, list_api_keys, get_api_key, revoke_api_key
+API Keys      create_api_key, list_api_keys, revoke_api_key
 ```
 
 `list_documents` returns a `futures::Stream<Item = Result<Page<T>, Error>>`
